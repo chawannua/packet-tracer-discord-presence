@@ -1,5 +1,8 @@
+import logging
+import os
 import pytest
 from unittest.mock import patch, MagicMock
+from packet_tracer_presence import cli
 from packet_tracer_presence.cli import main
 from packet_tracer_presence.window_parser import PacketTracerState
 
@@ -155,6 +158,103 @@ def test_cli_main_loop_no_exit_on_close_keeps_running():
          assert mock_detector.find_packet_tracer.call_count == 2
          mock_rpc.clear.assert_called_once()
          assert mock_sleep.call_count == 2
+
+def test_ensure_single_instance_writes_lock_file(tmp_path):
+    """Regression: the lock file was never written in production, because the
+    guard probed for `unittest` in sys.modules and comtypes imports it."""
+    lock = tmp_path / ".daemon.lock"
+
+    with patch('packet_tracer_presence.cli._running_under_tests', return_value=False), \
+         patch('packet_tracer_presence.cli.LOCK_FILE', str(lock)):
+        assert cli.ensure_single_instance() is True
+
+    assert lock.read_text().strip() == str(os.getpid())
+
+
+def test_ensure_single_instance_refuses_when_live_instance_running(tmp_path):
+    lock = tmp_path / ".daemon.lock"
+    lock.write_text("4242")
+    live = MagicMock()
+    live.name.return_value = "pythonw.exe"
+
+    with patch('packet_tracer_presence.cli._running_under_tests', return_value=False), \
+         patch('packet_tracer_presence.cli.LOCK_FILE', str(lock)), \
+         patch('psutil.pid_exists', return_value=True), \
+         patch('psutil.Process', return_value=live):
+        assert cli.ensure_single_instance() is None
+
+    assert lock.read_text().strip() == "4242"
+
+
+def test_ensure_single_instance_reclaims_stale_lock(tmp_path):
+    lock = tmp_path / ".daemon.lock"
+    lock.write_text("4242")
+
+    with patch('packet_tracer_presence.cli._running_under_tests', return_value=False), \
+         patch('packet_tracer_presence.cli.LOCK_FILE', str(lock)), \
+         patch('psutil.pid_exists', return_value=False):
+        assert cli.ensure_single_instance() is True
+
+    assert lock.read_text().strip() == str(os.getpid())
+
+
+def test_is_own_process_name_covers_launch_paths_but_not_packet_tracer():
+    assert cli._is_own_process_name("pythonw.exe")
+    assert cli._is_own_process_name("PacketTracerPresence.exe")
+    # Packet Tracer itself must never be mistaken for another copy of the daemon.
+    assert not cli._is_own_process_name("PacketTracer.exe")
+
+
+def test_main_mutes_comtypes_logger():
+    logging.getLogger("comtypes").setLevel(logging.NOTSET)
+    test_args = ["packet_tracer_presence"]
+
+    with patch('sys.argv', test_args), \
+         patch('packet_tracer_presence.cli.ProcessDetector') as mock_detector_class, \
+         patch('packet_tracer_presence.cli.WindowParser'), \
+         patch('packet_tracer_presence.cli.RPCManager'), \
+         patch('time.sleep', side_effect=KeyboardInterrupt):
+
+         mock_detector_class.return_value.find_packet_tracer.return_value = False
+         main()
+
+    assert logging.getLogger("comtypes").getEffectiveLevel() >= logging.WARNING
+
+
+def test_main_uses_rotating_log_handler():
+    test_args = ["packet_tracer_presence"]
+
+    with patch('sys.argv', test_args), \
+         patch('packet_tracer_presence.cli.RotatingFileHandler') as mock_handler, \
+         patch('packet_tracer_presence.cli.ProcessDetector') as mock_detector_class, \
+         patch('packet_tracer_presence.cli.WindowParser'), \
+         patch('packet_tracer_presence.cli.RPCManager'), \
+         patch('time.sleep', side_effect=KeyboardInterrupt):
+
+         mock_detector_class.return_value.find_packet_tracer.return_value = False
+         main()
+
+    mock_handler.assert_called_once()
+    kwargs = mock_handler.call_args[1]
+    assert kwargs["maxBytes"] == cli.LOG_MAX_BYTES
+    assert kwargs["backupCount"] == cli.LOG_BACKUP_COUNT
+
+
+def test_idle_poll_uses_slower_interval_while_packet_tracer_closed():
+    """Resident mode must not scan the process table at the active-session rate."""
+    test_args = ["packet_tracer_presence", "--no-exit-on-close"]
+
+    with patch('sys.argv', test_args), \
+         patch('packet_tracer_presence.cli.ProcessDetector') as mock_detector_class, \
+         patch('packet_tracer_presence.cli.WindowParser'), \
+         patch('packet_tracer_presence.cli.RPCManager'), \
+         patch('time.sleep', side_effect=KeyboardInterrupt) as mock_sleep:
+
+         mock_detector_class.return_value.find_packet_tracer.return_value = False
+         main()
+
+         mock_sleep.assert_called_once_with(15.0)
+
 
 def test_cli_main_loop_exit_on_close():
     test_args = ["packet_tracer_presence", "--exit-on-close"]

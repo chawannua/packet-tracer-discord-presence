@@ -9,10 +9,25 @@ class TestWindowParser(unittest.TestCase):
 
     @patch("pygetwindow.getAllWindows", return_value=[])
     @patch("packet_tracer_presence.window_parser.WindowParser._get_pt_pids", return_value={1234})
-    def test_window_parser_empty(self, mock_pids, mock_windows):
+    @patch("pygetwindow.getActiveWindow", return_value=None)
+    def test_window_parser_empty(self, mock_active, mock_pids, mock_windows):
         state = self.parser.get_active_activity()
         self.assertEqual(state.file_name, "Workspace")
         self.assertFalse(state.is_unsaved)
+
+    @patch("pygetwindow.getActiveWindow", side_effect=Exception("Invalid window handle"))
+    @patch("packet_tracer_presence.window_parser.WindowParser._get_pt_pids", return_value={1234})
+    def test_active_window_failure_still_reports_project(self, mock_pids, mock_active):
+        """A dead foreground window must not sink the whole presence update —
+        this is what left Discord blank on every poll."""
+        mock_win = MagicMock()
+        mock_win.title = "Cisco Packet Tracer - Campus_Network.pkt"
+        mock_win._hWnd = 1
+        with patch("pygetwindow.getAllWindows", return_value=[mock_win]):
+            with patch("ctypes.windll.user32.GetWindowThreadProcessId", side_effect=lambda hwnd, pid: ctypes_assign(pid, 1234)):
+                state = self.parser.get_active_activity()
+                self.assertEqual(state.file_name, "Campus_Network.pkt")
+                self.assertEqual(state.file_type, "pkt")
 
     @patch("pygetwindow.getAllWindows", side_effect=Exception("Error"))
     def test_window_parser_exception(self, mock_windows):

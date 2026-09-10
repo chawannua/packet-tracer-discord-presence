@@ -6,29 +6,58 @@ import time
 import logging
 import sys
 import os
-from .config import DEFAULT_POLLING_INTERVAL, DISCORD_CLIENT_ID
+from logging.handlers import RotatingFileHandler
+from .config import DEFAULT_POLLING_INTERVAL, IDLE_POLLING_INTERVAL, DISCORD_CLIENT_ID
 from .detector import ProcessDetector
 from .window_parser import WindowParser
 from .rpc_manager import RPCManager
 from . import __version__
 
+logger = logging.getLogger(__name__)
+
 LOCK_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".daemon.lock")
+
+LOG_MAX_BYTES = 1_000_000
+LOG_BACKUP_COUNT = 3
+
+
+def _running_under_tests() -> bool:
+    """Tests must not write the real lock file into the project directory.
+
+    Deliberately does not probe for ``unittest``: comtypes (pulled in by
+    window_parser) imports it transitively, so probing it disabled the lock
+    on every production run instead of only under test.
+    """
+    return os.environ.get("PT_PRESENCE_TESTING") == "1" or "pytest" in sys.modules
+
+
+def _is_own_process_name(name: str) -> bool:
+    """Whether a process name looks like another copy of this daemon.
+
+    Covers both launch paths: pythonw.exe from the venv, and the frozen
+    PacketTracerPresence.exe built by PyInstaller.
+    """
+    lowered = (name or "").lower()
+    return "python" in lowered or "packettracerpresence" in lowered
+
 
 def ensure_single_instance():
     """Use a PID lock file — crash-safe, no stale handles."""
-    if "pytest" in sys.modules or "unittest" in sys.modules:
+    if _running_under_tests():
         return True
     try:
         import psutil
         if os.path.exists(LOCK_FILE):
-            with open(LOCK_FILE, "r") as f:
-                old_pid = int(f.read().strip())
-            if psutil.pid_exists(old_pid):
+            try:
+                with open(LOCK_FILE, "r") as f:
+                    old_pid = int(f.read().strip())
+            except (ValueError, OSError):
+                old_pid = None
+            if old_pid is not None and old_pid != os.getpid() and psutil.pid_exists(old_pid):
                 try:
-                    p = psutil.Process(old_pid)
-                    if "python" in p.name().lower():
+                    if _is_own_process_name(psutil.Process(old_pid).name()):
                         return None  # Real live instance running
-                except Exception:
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
             # Stale lock — remove it
             os.remove(LOCK_FILE)
@@ -36,7 +65,8 @@ def ensure_single_instance():
         with open(LOCK_FILE, "w") as f:
             f.write(str(os.getpid()))
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning("Single-instance lock unavailable (%s); continuing without it", e)
         return True
 
 def remove_lock_file():
@@ -68,7 +98,9 @@ def main():
     log_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     log_file = os.path.join(log_dir, "presence.log")
     try:
-        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+        handlers.append(RotatingFileHandler(
+            log_file, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT, encoding="utf-8"
+        ))
     except Exception:
         pass
 
@@ -83,9 +115,11 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=handlers
     )
-    
-    logger = logging.getLogger(__name__)
-    
+
+    # comtypes logs one DEBUG line per COM pointer release, which under --verbose
+    # drowns the log at roughly 99% noise.
+    logging.getLogger("comtypes").setLevel(logging.WARNING)
+
     mutex = ensure_single_instance()
     if not mutex:
         logger.info("Another instance is already running. Exiting.")
@@ -97,7 +131,8 @@ def main():
     
     start_time = None
     was_running = False
-    
+    idle_interval = max(args.interval, IDLE_POLLING_INTERVAL)
+
     logger.info("Starting Packet Tracer Presence...")
     
     try:
@@ -149,8 +184,8 @@ def main():
                             break
             except Exception as loop_err:
                 logger.debug(f"Loop iteration error: {loop_err}")
-                        
-            time.sleep(args.interval)
+
+            time.sleep(args.interval if was_running else idle_interval)
             
     except KeyboardInterrupt:
         logger.info("Exiting...")

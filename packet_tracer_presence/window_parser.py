@@ -188,9 +188,15 @@ class WindowParser:
         devices = []
         user32 = ctypes.windll.user32
         
-        # Get active window globally to check if we are actively configuring
-        active_window = gw.getActiveWindow()
-        active_hwnd = active_window._hWnd if active_window else None
+        # Get active window globally to check if we are actively configuring.
+        # The foreground window can be destroyed or unqueryable between the
+        # handle lookup and the property read ("Invalid window handle"), which
+        # must not sink the whole presence update — focus is optional detail.
+        try:
+            active_window = gw.getActiveWindow()
+            active_hwnd = active_window._hWnd if active_window else None
+        except Exception:
+            active_hwnd = None
         
         for window in windows:
             title = window.title.strip()

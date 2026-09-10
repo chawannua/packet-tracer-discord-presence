@@ -1,8 +1,12 @@
 """
 Pytest configuration and environment mocks for test isolation.
 """
+import os
 import sys
 from unittest.mock import MagicMock
+
+# Keep the suite from writing the real .daemon.lock into the project directory.
+os.environ["PT_PRESENCE_TESTING"] = "1"
 
 # If psutil is not installed in the current environment, provide a mock module
 if "psutil" not in sys.modules:
