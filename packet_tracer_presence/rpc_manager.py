@@ -10,10 +10,11 @@ from .config import DISCORD_CLIENT_ID, RECONNECT_TIMEOUT
 logger = logging.getLogger(__name__)
 
 class RPCManager:
-    def __init__(self, client_id=DISCORD_CLIENT_ID):
+    def __init__(self, client_id=DISCORD_CLIENT_ID, rate_limit: float = 2.0):
         self.client_id = client_id
         self.presence = Presence(client_id)
         self.connected = False
+        self.rate_limit = rate_limit
         self._last_update_time = 0.0
         self._last_state = None
         self._connect_retry_time = 0.0
@@ -40,11 +41,6 @@ class RPCManager:
         if not self.connect():
             return
 
-        now = time.time()
-        # Rate limit to 15s
-        if now - self._last_update_time < 15.0:
-            return
-
         state_dict = {
             "project_name": project_name,
             "is_unsaved": is_unsaved,
@@ -61,21 +57,30 @@ class RPCManager:
         if state_dict == self._last_state:
             return
 
+        now = time.time()
+        # Rate limit updates (2-3s cooldown to respect Discord rate limits while allowing responsive updates on state change)
+        if now - self._last_update_time < self.rate_limit:
+            return
+
         # Details
         details = f"Editing {project_name}" if project_name else "Idling"
         
         if file_type == 'pka':
-            if completion_percent:
-                details = f"Lab: {project_name} ({completion_percent})"
+            prefix = f"Lab: {project_name}" if project_name else "Lab"
+            if completion_percent and activity_timer:
+                details = f"{prefix} ({completion_percent} • {activity_timer})"
+            elif completion_percent:
+                details = f"{prefix} ({completion_percent})"
             elif activity_timer:
-                details = f"Lab: {project_name} (Timer: {activity_timer})"
+                details = f"{prefix} (Timer: {activity_timer})"
             else:
-                details = f"Lab: {project_name}"
+                details = prefix
         elif file_type == 'pkt':
+            prefix = f"Topology: {project_name}" if project_name else "Topology"
             if activity_timer:
-                details = f"Topology: {project_name} (Timer: {activity_timer})"
+                details = f"{prefix} (Timer: {activity_timer})"
             else:
-                details = f"Topology: {project_name}"
+                details = prefix
             
         if is_unsaved or "Untitled" in str(project_name) or "New" in str(project_name):
             details = "Designing New Topology"
@@ -95,8 +100,10 @@ class RPCManager:
         if len(state_str) > 128:
             state_str = state_str[:125] + "..."
 
-        # Small image
-        small_image = device_type if device_type in ['router', 'switch', 'laptop', 'pc', 'server', 'phone', 'pt_logo'] else "pt_logo"
+        # Images and tooltips (Discord uploaded assets: 'packet_tracer' and 'cisco')
+        large_image = "packet_tracer"
+        large_text = "Cisco Packet Tracer"
+        small_image = "cisco"
         
         if active_device:
             if active_sub_app:
@@ -114,8 +121,8 @@ class RPCManager:
                 details=details,
                 state=state_str,
                 start=start_time,
-                large_image="pt_logo",
-                large_text="Cisco Packet Tracer",
+                large_image=large_image,
+                large_text=large_text,
                 small_image=small_image,
                 small_text=small_text
             )

@@ -48,9 +48,9 @@ def test_rpc_update_success():
             details="Topology: NetworkLab.pkt (Timer: 01:20:00)",
             state="Configuring: Router0",
             start=1000,
-            large_image="pt_logo",
+            large_image="packet_tracer",
             large_text="Cisco Packet Tracer",
-            small_image="router",
+            small_image="cisco",
             small_text="Configuring Router0"
         )
         assert rpc._last_state["project_name"] == "NetworkLab.pkt"
@@ -70,9 +70,9 @@ def test_rpc_update_unsaved_state():
             details="Designing New Topology",
             state="Mode: Realtime (Logical)",
             start=1000,
-            large_image="pt_logo",
+            large_image="packet_tracer",
             large_text="Cisco Packet Tracer",
-            small_image="pt_logo",
+            small_image="cisco",
             small_text="Cisco Packet Tracer"
         )
 
@@ -98,21 +98,56 @@ def test_rpc_update_active_sub_app():
             details="Lab: LAB1.3 CLI config.pka (75%)",
             state="Laptop0 > Terminal (Switch#)",
             start=1000,
-            large_image="pt_logo",
+            large_image="packet_tracer",
             large_text="Cisco Packet Tracer",
-            small_image="laptop",
+            small_image="cisco",
             small_text="Laptop0: Terminal (Switch#)"
         )
 
-def test_rpc_update_rate_limiting():
+def test_rpc_update_pka_completion_and_timer():
     with patch("packet_tracer_presence.rpc_manager.Presence"):
         rpc = RPCManager()
         rpc.presence = MagicMock()
         rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(
+            project_name="CCNA1_Lab.pka",
+            is_unsaved=False,
+            start_time=1000,
+            file_type="pka",
+            active_device="PC0",
+            active_sub_app="Command Prompt",
+            device_type="pc",
+            completion_percent="75%",
+            activity_timer="00:34:32"
+        )
+
+        rpc.presence.update.assert_called_once_with(
+            details="Lab: CCNA1_Lab.pka (75% • 00:34:32)",
+            state="PC0 > Command Prompt",
+            start=1000,
+            large_image="packet_tracer",
+            large_text="Cisco Packet Tracer",
+            small_image="cisco",
+            small_text="PC0: Command Prompt"
+        )
+
+def test_rpc_update_rate_limiting():
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager(rate_limit=2.0)
+        rpc.presence = MagicMock()
+        rpc.connected = True
         rpc._last_update_time = time.time()
 
+        # Should be throttled since within rate limit cooldown
         rpc.update(project_name="NetworkLab.pkt", is_unsaved=False, start_time=1000)
         rpc.presence.update.assert_not_called()
+
+        # Simulate time passing past rate limit cooldown
+        rpc._last_update_time = time.time() - 2.5
+        rpc.update(project_name="NetworkLab.pkt", is_unsaved=False, start_time=1000)
+        rpc.presence.update.assert_called_once()
 
 def test_rpc_update_state_deduplication():
     with patch("packet_tracer_presence.rpc_manager.Presence"):
