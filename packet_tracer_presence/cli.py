@@ -12,19 +12,39 @@ from .window_parser import WindowParser
 from .rpc_manager import RPCManager
 from . import __version__
 
+LOCK_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".daemon.lock")
+
 def ensure_single_instance():
-    if os.name == "nt" and "pytest" not in sys.modules and "unittest" not in sys.modules:
-        try:
-            import ctypes
-            mutex = ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\PacketTracerDiscordPresence_SingleInstanceMutex")
-            last_err = ctypes.windll.kernel32.GetLastError()
-            ERROR_ALREADY_EXISTS = 183
-            if last_err == ERROR_ALREADY_EXISTS:
-                return None
-            return mutex
-        except Exception:
-            return True
-    return True
+    """Use a PID lock file — crash-safe, no stale handles."""
+    if "pytest" in sys.modules or "unittest" in sys.modules:
+        return True
+    try:
+        import psutil
+        if os.path.exists(LOCK_FILE):
+            with open(LOCK_FILE, "r") as f:
+                old_pid = int(f.read().strip())
+            if psutil.pid_exists(old_pid):
+                try:
+                    p = psutil.Process(old_pid)
+                    if "python" in p.name().lower():
+                        return None  # Real live instance running
+                except Exception:
+                    pass
+            # Stale lock — remove it
+            os.remove(LOCK_FILE)
+        # Write our PID
+        with open(LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+        return True
+    except Exception:
+        return True
+
+def remove_lock_file():
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+    except Exception:
+        pass
 
 def main():
     parser = argparse.ArgumentParser(description="Discord Rich Presence for Cisco Packet Tracer")
@@ -129,6 +149,7 @@ def main():
         logger.info("Exiting...")
     finally:
         rpc.close()
+        remove_lock_file()
 
 if __name__ == "__main__":
     main()
