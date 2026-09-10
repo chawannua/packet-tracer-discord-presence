@@ -16,7 +16,7 @@ def ensure_single_instance():
     if os.name == "nt" and "pytest" not in sys.modules and "unittest" not in sys.modules:
         try:
             import ctypes
-            mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "Global\\PacketTracerDiscordPresence_SingleInstanceMutex")
+            mutex = ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\PacketTracerDiscordPresence_SingleInstanceMutex")
             last_err = ctypes.windll.kernel32.GetLastError()
             ERROR_ALREADY_EXISTS = 183
             if last_err == ERROR_ALREADY_EXISTS:
