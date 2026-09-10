@@ -51,7 +51,14 @@ def main():
     parser.add_argument("--interval", type=float, default=DEFAULT_POLLING_INTERVAL, help="Polling interval in seconds")
     parser.add_argument("--client-id", type=str, default=DISCORD_CLIENT_ID, help="Discord Client ID")
     parser.add_argument("--launch", action="store_true", help="Launch Discord Presence in background")
-    parser.add_argument("--exit-on-close", action="store_true", help="Exit when Packet Tracer closes")
+    parser.add_argument(
+        "--exit-on-close", dest="exit_on_close", action="store_true", default=True,
+        help="Exit when Packet Tracer closes (default: on)"
+    )
+    parser.add_argument(
+        "--no-exit-on-close", dest="exit_on_close", action="store_false",
+        help="Keep running (waiting for Packet Tracer to reopen) after it closes"
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     

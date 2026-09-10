@@ -1,6 +1,7 @@
 """
 Discord RPC Manager
 """
+import threading
 import time
 import logging
 from pypresence import Presence
@@ -8,6 +9,32 @@ from pypresence.exceptions import DiscordNotFound, InvalidID, PipeClosed
 from .config import DISCORD_CLIENT_ID, RECONNECT_TIMEOUT
 
 logger = logging.getLogger(__name__)
+
+# Windows named-pipe I/O to Discord has no built-in timeout in pypresence, so
+# a stalled/half-dead Discord client can otherwise block connect/update/close
+# forever. Every pypresence call goes through this to guarantee we never wait
+# longer than PIPE_TIMEOUT, so shutdown is always instant.
+PIPE_TIMEOUT = 2.5
+
+
+def _call_with_timeout(func, timeout=PIPE_TIMEOUT, *args, **kwargs):
+    result = {}
+
+    def target():
+        try:
+            result["value"] = func(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - re-raised on the caller's thread below
+            result["error"] = exc
+
+    worker = threading.Thread(target=target, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise TimeoutError(f"Discord RPC call timed out after {timeout}s")
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
 
 class RPCManager:
     def __init__(self, client_id=DISCORD_CLIENT_ID, rate_limit: float = 2.0):
@@ -28,12 +55,16 @@ class RPCManager:
             return False
             
         try:
-            self.presence.connect()
+            _call_with_timeout(self.presence.connect)
             self.connected = True
             logger.info("Connected to Discord RPC")
             return True
         except (DiscordNotFound, ConnectionRefusedError, FileNotFoundError, PipeClosed) as e:
             logger.debug(f"Failed to connect to Discord RPC: {e}")
+            self._connect_retry_time = now + RECONNECT_TIMEOUT
+            return False
+        except TimeoutError as e:
+            logger.warning(f"Discord RPC connect timed out: {e}")
             self._connect_retry_time = now + RECONNECT_TIMEOUT
             return False
 
@@ -127,7 +158,9 @@ class RPCManager:
             small_text = small_text[:125] + "..."
 
         try:
-            self.presence.update(
+            _call_with_timeout(
+                self.presence.update,
+                PIPE_TIMEOUT,
                 details=details,
                 state=state_str,
                 start=start_time,
@@ -143,6 +176,10 @@ class RPCManager:
             logger.warning("Discord RPC pipe closed")
             self.connected = False
             self.presence = Presence(self.client_id)
+        except TimeoutError as e:
+            logger.warning(f"Discord RPC update timed out: {e}")
+            self.connected = False
+            self.presence = Presence(self.client_id)
         except Exception as e:
             logger.error(f"Error updating RPC: {e}")
 
@@ -150,11 +187,11 @@ class RPCManager:
         if not self.connected:
             return
         try:
-            self.presence.clear()
+            _call_with_timeout(self.presence.clear)
         except Exception as e:
             logger.debug(f"Failed to clear presence: {e}")
         try:
-            self.presence.close()
+            _call_with_timeout(self.presence.close)
         except Exception as e:
             logger.debug(f"Failed to close presence on clear: {e}")
         self.connected = False
@@ -162,11 +199,11 @@ class RPCManager:
         self._last_update_time = 0.0
         self.presence = Presence(self.client_id)
         logger.info("Presence cleared and disconnected from Discord")
-            
+
     def close(self):
         if self.connected:
             try:
-                self.presence.close()
+                _call_with_timeout(self.presence.close)
             except Exception as e:
                 logger.debug(f"Failed to close presence: {e}")
             self.connected = False

@@ -238,6 +238,42 @@ def test_rpc_update_pipe_closed_recovery():
         rpc.update(project_name="NetworkLab.pkt", is_unsaved=False, start_time=1000)
         assert rpc.connected is False
 
+def test_rpc_connect_times_out_without_hanging():
+    """Guards the hang-on-close fix: a stalled Discord pipe must never block
+    the daemon beyond PIPE_TIMEOUT, not hang forever."""
+    from packet_tracer_presence.rpc_manager import PIPE_TIMEOUT
+
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.presence.connect.side_effect = lambda: time.sleep(PIPE_TIMEOUT + 5)
+
+        started = time.time()
+        result = rpc.connect()
+        elapsed = time.time() - started
+
+        assert result is False
+        assert rpc.connected is False
+        assert elapsed < PIPE_TIMEOUT + 2, "connect() blocked far longer than the pipe timeout"
+
+
+def test_rpc_close_times_out_without_hanging():
+    from packet_tracer_presence.rpc_manager import PIPE_TIMEOUT
+
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.presence.close.side_effect = lambda: time.sleep(PIPE_TIMEOUT + 5)
+        rpc.connected = True
+
+        started = time.time()
+        rpc.close()
+        elapsed = time.time() - started
+
+        assert rpc.connected is False
+        assert elapsed < PIPE_TIMEOUT + 2, "close() blocked far longer than the pipe timeout"
+
+
 def test_rpc_clear_and_close():
     with patch("packet_tracer_presence.rpc_manager.Presence"):
         rpc = RPCManager()

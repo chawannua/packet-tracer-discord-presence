@@ -89,6 +89,38 @@ def test_find_packet_tracer_scan_handles_exceptions():
         assert detector._cached_pid == 4321
 
 
+def test_find_packet_tracer_cache_rejects_reused_pid():
+    """is_running() is create_time-aware: if the cached PID got reused by an
+    unrelated process after Packet Tracer exited, it must report not-running
+    rather than trusting a stale pid_exists()-style check."""
+    detector = ProcessDetector()
+    mock_proc = MagicMock()
+    mock_proc.is_running.return_value = False  # psutil detected the PID was reused
+    detector._cached_pid = 1234
+    detector._cached_process = mock_proc
+
+    with patch("psutil.process_iter", return_value=[]):
+        assert detector.find_packet_tracer() is False
+        assert detector._cached_pid is None
+        assert detector._cached_process is None
+
+
+def test_find_packet_tracer_prefers_oldest_of_multiple_matches():
+    detector = ProcessDetector()
+
+    newer = MagicMock()
+    newer.info = {"pid": 111, "name": "PacketTracer.exe", "exe": r"C:\PT\PacketTracer.exe", "create_time": 200.0}
+    newer.status.return_value = "running"
+
+    older = MagicMock()
+    older.info = {"pid": 222, "name": "PacketTracer.exe", "exe": r"C:\PT\PacketTracer.exe", "create_time": 100.0}
+    older.status.return_value = "running"
+
+    with patch("psutil.process_iter", return_value=[newer, older]):
+        assert detector.find_packet_tracer() is True
+        assert detector._cached_pid == 222
+
+
 def test_get_installation_paths():
     detector = ProcessDetector()
     detector._running_exe_path = r"C:\Program Files\Cisco Packet Tracer\bin\PacketTracer.exe"

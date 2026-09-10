@@ -72,3 +72,5 @@ venv.bak/
 DiscordPrecense.exe
 *.log
 @AutomationLog.txt
+stderr_crash.txt
+.daemon.lock
