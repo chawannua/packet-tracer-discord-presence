@@ -2,9 +2,11 @@
 Unit tests for packet_tracer_presence.rpc_manager
 """
 import time
+import pytest
 from unittest.mock import MagicMock, patch
 from pypresence.exceptions import DiscordNotFound, PipeClosed
-from packet_tracer_presence.rpc_manager import RPCManager
+from packet_tracer_presence.rpc_manager import RPCManager, _progress_bar
+from packet_tracer_presence.config import PRESENCE_BUTTONS
 
 def test_rpc_manager_init():
     with patch("packet_tracer_presence.rpc_manager.Presence") as mock_presence:
@@ -45,6 +47,7 @@ def test_rpc_update_success():
                    file_type="pkt", active_device="Router0", device_type="router", activity_timer="01:20:00")
 
         rpc.presence.update.assert_called_once_with(
+            buttons=PRESENCE_BUTTONS,
             details="Topology: NetworkLab.pkt (01:20:00)",
             state="Configuring Router0",
             start=1000,
@@ -67,6 +70,7 @@ def test_rpc_update_unsaved_state():
                    file_type="pkt", active_device=None, device_type="pt_logo", activity_timer=None)
 
         rpc.presence.update.assert_called_once_with(
+            buttons=PRESENCE_BUTTONS,
             details="Designing New Topology",
             state="Designing Logical Topology (Realtime)",
             start=1000,
@@ -95,11 +99,12 @@ def test_rpc_update_active_sub_app():
         )
 
         rpc.presence.update.assert_called_once_with(
+            buttons=PRESENCE_BUTTONS,
             details="Lab: LAB1.3 CLI config.pka (75%)",
             state="Laptop0 > Terminal (Switch#)",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer | Progress: 75%",
+            large_text=f"Cisco Packet Tracer | {_progress_bar('75%')} 75%",
             small_image="cisco",
             small_text="Laptop0 (Laptop)"
         )
@@ -124,11 +129,12 @@ def test_rpc_update_pka_completion_and_timer():
         )
 
         rpc.presence.update.assert_called_once_with(
+            buttons=PRESENCE_BUTTONS,
             details="Lab: CCNA1_Lab.pka (75% • 00:34:32)",
             state="PC0 > Command Prompt",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer | Progress: 75%",
+            large_text=f"Cisco Packet Tracer | {_progress_bar('75%')} 75%",
             small_image="cisco",
             small_text="PC0 (Pc)"
         )
@@ -150,6 +156,7 @@ def test_rpc_update_workspace_canvas_tools():
         )
 
         rpc.presence.update.assert_called_once_with(
+            buttons=PRESENCE_BUTTONS,
             details="Topology: Campus.pkt",
             state="Testing Connectivity (Simple PDU Ping)",
             start=1000,
@@ -177,6 +184,7 @@ def test_rpc_update_pka_no_completion_simulation():
         )
 
         rpc.presence.update.assert_called_once_with(
+            buttons=PRESENCE_BUTTONS,
             details="Lab: Activity.pka",
             state="Designing Physical Topology (Simulation)",
             start=1000,
@@ -284,3 +292,67 @@ def test_rpc_clear_and_close():
         mock_p.clear.assert_called_once()
         mock_p.close.assert_called_once()
         assert rpc.connected is False
+
+
+def test_progress_bar_renders_expected_blocks():
+    full, empty = chr(0x2588), chr(0x2591)
+    assert _progress_bar("0%") == empty * 10
+    assert _progress_bar("100%") == full * 10
+    assert _progress_bar("50%") == full * 5 + empty * 5
+    assert _progress_bar("75%") == full * 8 + empty * 2
+
+
+@pytest.mark.parametrize("bad", [None, "", "n/a", "--", "abc%"])
+def test_progress_bar_returns_none_for_unusable_values(bad):
+    assert _progress_bar(bad) is None
+
+
+@pytest.mark.parametrize("value,expected_filled", [("-10%", 0), ("150%", 10)])
+def test_progress_bar_clamps_out_of_range(value, expected_filled):
+    bar = _progress_bar(value)
+    assert bar.count(chr(0x2588)) == expected_filled
+
+
+def test_rpc_update_falls_back_when_discord_rejects_buttons():
+    """A buttons rejection must cost the buttons, never the whole presence."""
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+        rpc.presence.update.side_effect = [TypeError("buttons unsupported"), None]
+
+        rpc.update(project_name="NetworkLab.pkt", is_unsaved=False, start_time=1000, file_type="pkt")
+
+        assert rpc.presence.update.call_count == 2
+        assert "buttons" not in rpc.presence.update.call_args_list[1].kwargs
+        assert rpc._buttons is None
+        assert rpc._last_state is not None
+
+
+def test_rpc_update_pka_completion_renders_bar():
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(project_name="Activity.pka", is_unsaved=False, start_time=1000,
+                   file_type="pka", completion_percent="50%")
+
+        large_text = rpc.presence.update.call_args.kwargs["large_text"]
+        assert chr(0x2588) * 5 + chr(0x2591) * 5 in large_text
+        assert "50%" in large_text
+
+
+def test_rpc_update_unknown_device_type_falls_back_to_default_asset():
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(project_name="NetworkLab.pkt", is_unsaved=False, start_time=1000,
+                   file_type="pkt", active_device="Blade0", device_type="not_a_real_device")
+
+        assert rpc.presence.update.call_args.kwargs["small_image"] == "cisco"

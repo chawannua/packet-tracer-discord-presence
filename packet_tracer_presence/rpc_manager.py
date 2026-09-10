@@ -6,9 +6,35 @@ import time
 import logging
 from pypresence import Presence
 from pypresence.exceptions import DiscordNotFound, InvalidID, PipeClosed
-from .config import DISCORD_CLIENT_ID, RECONNECT_TIMEOUT
+from .config import (
+    DISCORD_CLIENT_ID,
+    RECONNECT_TIMEOUT,
+    PRESENCE_BUTTONS,
+    DEVICE_ASSET_KEYS,
+    DEFAULT_SMALL_ASSET,
+)
 
 logger = logging.getLogger(__name__)
+
+# Built from codepoints rather than literals: this module is imported by a
+# pythonw process on Windows, where a source file read without a UTF-8 BOM
+# mangles pasted block characters.
+_BAR_FULL = chr(0x2588)
+_BAR_EMPTY = chr(0x2591)
+BAR_WIDTH = 10
+
+
+def _progress_bar(completion_percent, width=BAR_WIDTH):
+    """Render "75%" as a block bar. Returns None if the value is unusable."""
+    if not completion_percent:
+        return None
+    try:
+        pct = float(str(completion_percent).strip().rstrip("%"))
+    except (ValueError, TypeError):
+        return None
+    pct = max(0.0, min(100.0, pct))
+    filled = int(round(pct / 100.0 * width))
+    return _BAR_FULL * filled + _BAR_EMPTY * (width - filled)
 
 # Windows named-pipe I/O to Discord has no built-in timeout in pypresence, so
 # a stalled/half-dead Discord client can otherwise block connect/update/close
@@ -45,6 +71,8 @@ class RPCManager:
         self._last_update_time = 0.0
         self._last_state = None
         self._connect_retry_time = 0.0
+        # Cleared permanently if Discord ever rejects the buttons payload.
+        self._buttons = list(PRESENCE_BUTTONS) or None
 
     def connect(self) -> bool:
         if self.connected:
@@ -137,7 +165,10 @@ class RPCManager:
         # Images and tooltips (Discord uploaded assets: 'packet_tracer' and 'cisco')
         large_image = "packet_tracer"
         if file_type == 'pka':
-            if completion_percent:
+            bar = _progress_bar(completion_percent)
+            if bar:
+                large_text = f"Cisco Packet Tracer | {bar} {completion_percent}"
+            elif completion_percent:
                 large_text = f"Cisco Packet Tracer | Progress: {completion_percent}"
             else:
                 large_text = f"Cisco Packet Tracer | {sim_mode} Mode"
@@ -147,7 +178,9 @@ class RPCManager:
         if len(large_text) > 128:
             large_text = large_text[:125] + "..."
 
-        small_image = "cisco"
+        small_image = DEVICE_ASSET_KEYS.get(
+            (device_type or "").lower(), DEFAULT_SMALL_ASSET
+        )
         if active_device:
             dev_cap = (device_type or "device").capitalize()
             small_text = f"{active_device} ({dev_cap})"
@@ -157,18 +190,35 @@ class RPCManager:
         if len(small_text) > 128:
             small_text = small_text[:125] + "..."
 
+        payload = dict(
+            details=details,
+            state=state_str,
+            start=start_time,
+            large_image=large_image,
+            large_text=large_text,
+            small_image=small_image,
+            small_text=small_text,
+        )
+
         try:
-            _call_with_timeout(
-                self.presence.update,
-                PIPE_TIMEOUT,
-                details=details,
-                state=state_str,
-                start=start_time,
-                large_image=large_image,
-                large_text=large_text,
-                small_image=small_image,
-                small_text=small_text
-            )
+            try:
+                _call_with_timeout(
+                    self.presence.update, PIPE_TIMEOUT, buttons=self._buttons, **payload
+                )
+            except (PipeClosed, TimeoutError):
+                raise
+            except Exception as button_err:
+                # Some pypresence/Discord combinations reject the buttons field.
+                # Losing the buttons beats losing the whole presence.
+                if self._buttons is not None:
+                    logger.warning(
+                        "Discord rejected presence buttons (%s); retrying without them",
+                        button_err,
+                    )
+                    self._buttons = None
+                    _call_with_timeout(self.presence.update, PIPE_TIMEOUT, **payload)
+                else:
+                    raise
             self._last_update_time = now
             self._last_state = state_dict
             logger.debug(f"Updated RPC: {details} | {state_str}")

@@ -69,6 +69,23 @@ def ensure_single_instance():
         logger.warning("Single-instance lock unavailable (%s); continuing without it", e)
         return True
 
+def resolve_project_start(project_name, last_project, start_time, now):
+    """Return (start_time, last_project), restarting the clock on a real file switch.
+
+    The elapsed timer should measure time on the current topology, not uptime of
+    the application. A blank or "Workspace" reading is a transient parse miss
+    from window_parser, so it keeps the previous project and its timer rather
+    than restarting the clock every time a title read happens to fail.
+    """
+    if not project_name or project_name == "Workspace":
+        return start_time, last_project
+    if last_project is None:
+        return start_time, project_name
+    if project_name != last_project:
+        return now, project_name
+    return start_time, last_project
+
+
 def remove_lock_file():
     try:
         if os.path.exists(LOCK_FILE):
@@ -131,6 +148,7 @@ def main():
     
     start_time = None
     was_running = False
+    last_project = None
     idle_interval = max(args.interval, IDLE_POLLING_INTERVAL)
 
     logger.info("Starting Packet Tracer Presence...")
@@ -144,6 +162,7 @@ def main():
                     if not was_running:
                         logger.info("Packet Tracer started")
                         start_time = int(time.time())
+                        last_project = None
                         was_running = True
                     
                     state = window_parser.get_active_activity()
@@ -158,6 +177,13 @@ def main():
                             ext = project_name.split(".")[-1].lower() if "." in project_name else ""
                             if ext in ["pka", "pkt", "pkz"]:
                                 state.file_type = ext
+
+                    previous_project = last_project
+                    start_time, last_project = resolve_project_start(
+                        project_name, last_project, start_time, int(time.time())
+                    )
+                    if previous_project is not None and last_project != previous_project:
+                        logger.info("Switched project: %s -> %s", previous_project, last_project)
 
                     rpc.update(
                         project_name=project_name, 
@@ -178,6 +204,7 @@ def main():
                         logger.info("Packet Tracer closed")
                         rpc.clear()
                         start_time = None
+                        last_project = None
                         was_running = False
                         if args.exit_on_close:
                             logger.info("Exiting because Packet Tracer closed (--exit-on-close)")

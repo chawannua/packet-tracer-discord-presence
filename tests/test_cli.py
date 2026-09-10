@@ -279,3 +279,40 @@ def test_cli_main_loop_exit_on_close():
          assert mock_detector.find_packet_tracer.call_count == 2
          mock_rpc.clear.assert_called_once()
          mock_rpc.close.assert_called_once()
+
+
+def test_resolve_project_start_resets_on_real_file_switch():
+    """Opening a different topology restarts the elapsed timer."""
+    start, project = cli.resolve_project_start("LabB.pkt", "LabA.pkt", 1000, 5000)
+    assert start == 5000
+    assert project == "LabB.pkt"
+
+
+def test_resolve_project_start_keeps_timer_on_same_file():
+    start, project = cli.resolve_project_start("LabA.pkt", "LabA.pkt", 1000, 5000)
+    assert start == 1000
+    assert project == "LabA.pkt"
+
+
+@pytest.mark.parametrize("transient", ["", None, "Workspace"])
+def test_resolve_project_start_ignores_transient_blank_readings(transient):
+    """A failed title read must not restart the clock or forget the project."""
+    start, project = cli.resolve_project_start(transient, "LabA.pkt", 1000, 5000)
+    assert start == 1000
+    assert project == "LabA.pkt"
+
+
+def test_resolve_project_start_first_sighting_keeps_launch_time():
+    """The first real reading adopts the project without discarding launch time."""
+    start, project = cli.resolve_project_start("LabA.pkt", None, 1000, 5000)
+    assert start == 1000
+    assert project == "LabA.pkt"
+
+
+def test_resolve_project_start_survives_blank_between_two_reads_of_same_file():
+    """LabA -> blank -> LabA is not a file switch."""
+    start, project = cli.resolve_project_start("LabA.pkt", None, 1000, 4000)
+    start, project = cli.resolve_project_start("Workspace", project, start, 5000)
+    start, project = cli.resolve_project_start("LabA.pkt", project, start, 6000)
+    assert start == 1000
+    assert project == "LabA.pkt"
