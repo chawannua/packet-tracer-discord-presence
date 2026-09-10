@@ -16,6 +16,8 @@ from pypresence.exceptions import (
 from packet_tracer_presence.rpc_manager import RPCManager, _progress_bar
 from packet_tracer_presence.config import PRESENCE_BUTTONS
 
+MIDDOT = chr(0x00B7)
+
 def test_rpc_manager_init():
     with patch("packet_tracer_presence.rpc_manager.Presence") as mock_presence:
         rpc = RPCManager(client_id="12345")
@@ -56,13 +58,13 @@ def test_rpc_update_success():
 
         rpc.presence.update.assert_called_once_with(
             buttons=PRESENCE_BUTTONS,
-            details="Topology: NetworkLab.pkt (01:20:00)",
-            state="Configuring Router0",
+            details=f"Building network {MIDDOT} NetworkLab.pkt",
+            state="Provisioning Router0",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer | Realtime (Logical)",
+            large_text=f"Cisco Packet Tracer {MIDDOT} Realtime mode {MIDDOT} Logical view",
             small_image="cisco",
-            small_text="Router0 (Router)"
+            small_text=f"Router0 {MIDDOT} Cisco router"
         )
         assert rpc._last_state["project_name"] == "NetworkLab.pkt"
         assert rpc._last_state["activity_timer"] == "01:20:00"
@@ -79,11 +81,11 @@ def test_rpc_update_unsaved_state():
 
         rpc.presence.update.assert_called_once_with(
             buttons=PRESENCE_BUTTONS,
-            details="Designing New Topology",
-            state="Designing Logical Topology (Realtime)",
+            details="Architecting a new network",
+            state="Designing the network topology",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer | Realtime (Logical)",
+            large_text=f"Cisco Packet Tracer {MIDDOT} Realtime mode {MIDDOT} Logical view",
             small_image="cisco",
             small_text="Cisco Systems"
         )
@@ -108,13 +110,13 @@ def test_rpc_update_active_sub_app():
 
         rpc.presence.update.assert_called_once_with(
             buttons=PRESENCE_BUTTONS,
-            details="Lab: LAB1.3 CLI config.pka (75%)",
-            state="Laptop0 > Terminal (Switch#)",
+            details=f"Certification lab {MIDDOT} 75% solved",
+            state=f"Laptop0 {MIDDOT} Terminal (Switch#)",
             start=1000,
             large_image="packet_tracer",
-            large_text=f"Cisco Packet Tracer | {_progress_bar('75%')} 75%",
+            large_text=f"Cisco Packet Tracer {MIDDOT} {_progress_bar('75%')} 75%",
             small_image="cisco",
-            small_text="Laptop0 (Laptop)"
+            small_text=f"Laptop0 {MIDDOT} Cisco laptop"
         )
 
 def test_rpc_update_pka_completion_and_timer():
@@ -138,13 +140,13 @@ def test_rpc_update_pka_completion_and_timer():
 
         rpc.presence.update.assert_called_once_with(
             buttons=PRESENCE_BUTTONS,
-            details="Lab: CCNA1_Lab.pka (75% • 00:34:32)",
-            state="PC0 > Command Prompt",
+            details=f"Certification lab {MIDDOT} 75% solved",
+            state=f"PC0 {MIDDOT} Command Prompt",
             start=1000,
             large_image="packet_tracer",
-            large_text=f"Cisco Packet Tracer | {_progress_bar('75%')} 75%",
+            large_text=f"Cisco Packet Tracer {MIDDOT} {_progress_bar('75%')} 75%",
             small_image="cisco",
-            small_text="PC0 (Pc)"
+            small_text=f"PC0 {MIDDOT} Cisco pc"
         )
 
 def test_rpc_update_workspace_canvas_tools():
@@ -165,11 +167,11 @@ def test_rpc_update_workspace_canvas_tools():
 
         rpc.presence.update.assert_called_once_with(
             buttons=PRESENCE_BUTTONS,
-            details="Topology: Campus.pkt",
-            state="Testing Connectivity (Simple PDU Ping)",
+            details=f"Building network {MIDDOT} Campus.pkt",
+            state="Using Testing Connectivity (Simple PDU Ping)",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer | Realtime (Logical)",
+            large_text=f"Cisco Packet Tracer {MIDDOT} Realtime mode {MIDDOT} Logical view",
             small_image="cisco",
             small_text="Cisco Systems"
         )
@@ -193,14 +195,124 @@ def test_rpc_update_pka_no_completion_simulation():
 
         rpc.presence.update.assert_called_once_with(
             buttons=PRESENCE_BUTTONS,
-            details="Lab: Activity.pka",
-            state="Designing Physical Topology (Simulation)",
+            details=f"Certification lab {MIDDOT} Activity.pka",
+            state="Tracing packets hop-by-hop",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer | Simulation Mode",
+            large_text=f"Cisco Packet Tracer {MIDDOT} Simulation mode {MIDDOT} Physical view",
             small_image="cisco",
             small_text="Cisco Systems"
         )
+
+
+def test_rpc_update_unknown_file_type_with_project_name():
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(project_name="Scratchpad", is_unsaved=False, start_time=1000, file_type="unknown")
+
+        assert rpc.presence.update.call_args.kwargs["details"] == f"Working on {MIDDOT} Scratchpad"
+
+
+def test_rpc_update_unknown_file_type_without_project_name_is_unreachable_via_new_topology():
+    """An empty project_name is caught by the 'new/blank project' branch before the
+    generic file-type fallback, so this exercises that priority explicitly."""
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(project_name="", is_unsaved=False, start_time=1000, file_type="unknown")
+
+        assert rpc.presence.update.call_args.kwargs["details"] == "Architecting a new network"
+
+
+@pytest.mark.parametrize("sub_app,expected_state", [
+    ("CLI", "Live IOS console on Router0"),
+    ("cli", "Live IOS console on Router0"),
+    ("Config", "Configuring interfaces on Router0"),
+    ("CONFIG", "Configuring interfaces on Router0"),
+    ("Desktop", "Running diagnostics from Router0"),
+    ("desktop", "Running diagnostics from Router0"),
+])
+def test_rpc_update_state_sub_app_variants(sub_app, expected_state):
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(
+            project_name="NetworkLab.pkt",
+            is_unsaved=False,
+            start_time=1000,
+            file_type="pkt",
+            active_device="Router0",
+            active_sub_app=sub_app,
+        )
+
+        assert rpc.presence.update.call_args.kwargs["state"] == expected_state
+
+
+def test_rpc_update_state_device_no_sub_app_is_provisioning():
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(
+            project_name="NetworkLab.pkt",
+            is_unsaved=False,
+            start_time=1000,
+            file_type="pkt",
+            active_device="Switch1",
+            active_sub_app=None,
+        )
+
+        assert rpc.presence.update.call_args.kwargs["state"] == "Provisioning Switch1"
+
+
+def test_rpc_update_small_text_missing_device_type():
+    """active_device with a missing/pt_logo device_type still reports a device tooltip."""
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(
+            project_name="NetworkLab.pkt",
+            is_unsaved=False,
+            start_time=1000,
+            file_type="pkt",
+            active_device="Blade0",
+            device_type="pt_logo",
+        )
+
+        assert rpc.presence.update.call_args.kwargs["small_text"] == f"Blade0 {MIDDOT} Cisco device"
+
+
+def test_rpc_update_details_truncates_to_128_chars():
+    """The new copy is longer than the old phrasing in places; truncation must still apply."""
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        long_name = "A" * 200
+        rpc.update(project_name=long_name, is_unsaved=False, start_time=1000, file_type="pkt")
+
+        details = rpc.presence.update.call_args.kwargs["details"]
+        assert len(details) == 128
+        assert details.endswith("...")
+        assert details.startswith(f"Building network {MIDDOT} AAA")
+
 
 def test_rpc_update_rate_limiting():
     with patch("packet_tracer_presence.rpc_manager.Presence"):

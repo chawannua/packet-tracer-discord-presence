@@ -29,6 +29,10 @@ _BAR_FULL = chr(0x2588)
 _BAR_EMPTY = chr(0x2591)
 BAR_WIDTH = 10
 
+# Same reasoning as the block characters above: built from its codepoint so a
+# BOM-less read under pythonw can't mangle it.
+_MIDDOT = chr(0x00B7)
+
 
 def _progress_bar(completion_percent, width=BAR_WIDTH):
     """Render "75%" as a block bar. Returns None if the value is unusable."""
@@ -139,57 +143,66 @@ class RPCManager:
             return
 
         # Details
-        if is_unsaved or "Untitled" in str(project_name) or "New" in str(project_name) or not project_name or project_name == "Workspace":
-            details = "Designing New Topology"
+        if (
+            is_unsaved
+            or not project_name
+            or project_name == "Workspace"
+            or "Untitled" in str(project_name)
+            or "New" in str(project_name)
+        ):
+            details = "Architecting a new network"
         elif file_type == 'pka':
-            prefix = f"Lab: {project_name}" if project_name else "Lab"
-            if completion_percent and activity_timer:
-                details = f"{prefix} ({completion_percent} • {activity_timer})"
-            elif completion_percent:
-                details = f"{prefix} ({completion_percent})"
-            elif activity_timer:
-                details = f"{prefix} ({activity_timer})"
+            if completion_percent:
+                details = f"Certification lab {_MIDDOT} {completion_percent} solved"
+            elif project_name:
+                details = f"Certification lab {_MIDDOT} {project_name}"
             else:
-                details = prefix
+                details = "Working a certification lab"
         elif file_type == 'pkt':
-            prefix = f"Topology: {project_name}" if project_name else "Topology"
-            if activity_timer:
-                details = f"{prefix} ({activity_timer})"
+            if project_name:
+                details = f"Building network {_MIDDOT} {project_name}"
             else:
-                details = prefix
+                details = "Building a network"
+        elif project_name:
+            details = f"Working on {_MIDDOT} {project_name}"
         else:
-            details = f"Editing {project_name}" if project_name else "Idling"
+            details = "Working in Packet Tracer"
 
         if len(details) > 128:
             details = details[:125] + "..."
 
         # State
         if active_device:
-            if active_sub_app:
-                state_str = f"{active_device} > {active_sub_app}"
+            sub_app_lower = (active_sub_app or "").lower()
+            if sub_app_lower == "cli":
+                state_str = f"Live IOS console on {active_device}"
+            elif sub_app_lower == "config":
+                state_str = f"Configuring interfaces on {active_device}"
+            elif sub_app_lower == "desktop":
+                state_str = f"Running diagnostics from {active_device}"
+            elif active_sub_app:
+                state_str = f"{active_device} {_MIDDOT} {active_sub_app}"
             else:
-                state_str = f"Configuring {active_device}"
+                state_str = f"Provisioning {active_device}"
+        elif sim_mode == "Simulation":
+            state_str = "Tracing packets hop-by-hop"
+        elif workspace_tool:
+            state_str = f"Using {workspace_tool}"
         else:
-            if workspace_tool:
-                state_str = workspace_tool
-            else:
-                state_str = f"Designing {view_mode} Topology ({sim_mode})"
-            
+            state_str = "Designing the network topology"
+
         if len(state_str) > 128:
             state_str = state_str[:125] + "..."
 
         # Images and tooltips (Discord uploaded assets: 'packet_tracer' and 'cisco')
         large_image = "packet_tracer"
-        if file_type == 'pka':
-            bar = _progress_bar(completion_percent)
-            if bar:
-                large_text = f"Cisco Packet Tracer | {bar} {completion_percent}"
-            elif completion_percent:
-                large_text = f"Cisco Packet Tracer | Progress: {completion_percent}"
-            else:
-                large_text = f"Cisco Packet Tracer | {sim_mode} Mode"
+        bar = _progress_bar(completion_percent) if file_type == 'pka' else None
+        if file_type == 'pka' and bar:
+            large_text = f"Cisco Packet Tracer {_MIDDOT} {bar} {completion_percent}"
+        elif file_type == 'pka' and completion_percent:
+            large_text = f"Cisco Packet Tracer {_MIDDOT} {completion_percent} complete"
         else:
-            large_text = f"Cisco Packet Tracer | {sim_mode} ({view_mode})"
+            large_text = f"Cisco Packet Tracer {_MIDDOT} {sim_mode} mode {_MIDDOT} {view_mode} view"
 
         if len(large_text) > 128:
             large_text = large_text[:125] + "..."
@@ -198,11 +211,13 @@ class RPCManager:
             (device_type or "").lower(), DEFAULT_SMALL_ASSET
         )
         if active_device:
-            dev_cap = (device_type or "device").capitalize()
-            small_text = f"{active_device} ({dev_cap})"
+            if device_type and device_type != "pt_logo":
+                small_text = f"{active_device} {_MIDDOT} Cisco {device_type.lower()}"
+            else:
+                small_text = f"{active_device} {_MIDDOT} Cisco device"
         else:
             small_text = "Cisco Systems"
-            
+
         if len(small_text) > 128:
             small_text = small_text[:125] + "..."
 
