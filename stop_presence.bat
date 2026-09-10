@@ -6,17 +6,8 @@ if exist "%LOCKFILE%" (
     set /p PID=<"%LOCKFILE%"
     set IMAGE=
 
-    rem Resolve the PID's image name before killing anything. A lock file can
-    rem outlive a crash, a logoff, or this script's own /F kill, and Windows
-    rem recycles PIDs -- an unverified "taskkill /F /PID" can therefore destroy
-    rem a completely unrelated process and still report success.
-    rem tasklist writes its "No tasks are running" notice to stdout, not stderr,
-    rem so it has to be filtered out or it lands in IMAGE as a bogus name.
     for /f "tokens=1 delims=," %%A in ('tasklist /FI "PID eq !PID!" /NH /FO CSV 2^>nul ^| findstr /V /C:"INFO:"') do set IMAGE=%%~A
 
-    rem The daemon runs as the versioned interpreter (pythonw3.13.exe), not the
-    rem pythonw.exe launcher stub that spawns it, so match on a substring rather
-    rem than an exact image name. Frozen builds run as PacketTracerPresence.exe.
     echo !IMAGE! | findstr /I "python packettracerpresence" >nul
     if !errorlevel! equ 0 (
         taskkill /F /PID !PID! >nul 2>&1

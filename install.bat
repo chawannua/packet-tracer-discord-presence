@@ -7,7 +7,6 @@ echo   Cisco Packet Tracer - Discord Rich Presence Installer
 echo ========================================================
 echo.
 
-:: 1. Check Python installation
 where python >nul 2>&1
 if %errorlevel% equ 0 goto :python_ok
 
@@ -41,7 +40,6 @@ exit /b 1
 :python_ok
 echo [*] Python detected. Checking virtual environment...
 
-:: 2. Create virtual environment if it does not exist
 if not exist ".venv" (
     echo [*] Creating virtual environment (.venv)...
     python -m venv .venv
@@ -52,7 +50,6 @@ if not exist ".venv" (
     )
 )
 
-:: 3. Install/upgrade dependencies
 echo [*] Installing required dependencies (pypresence, psutil, pygetwindow)...
 ".venv\Scripts\python.exe" -m pip install --quiet --upgrade pip
 ".venv\Scripts\pip.exe" install --quiet -r requirements.txt
@@ -62,11 +59,9 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: 4. Install Windows Autostart shortcut
 echo [*] Setting up silent background autostart...
 ".venv\Scripts\python.exe" install_autostart.py
 
-:: 5. Launch the service silently right now
 echo [*] Starting Packet Tracer Presence in the background...
 wscript.exe start_silently.vbs
 
