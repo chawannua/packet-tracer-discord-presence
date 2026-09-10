@@ -2,6 +2,7 @@
 
 [![Build & Release](https://github.com/chawannua/packet-tracer-discord-presence/actions/workflows/build-release.yml/badge.svg)](https://github.com/chawannua/packet-tracer-discord-presence/actions/workflows/build-release.yml)
 ![Python Versions](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue?logo=python)
+[![Version](https://img.shields.io/github/v/release/chawannua/packet-tracer-discord-presence?color=blue&label=version&style=flat-square)](https://github.com/chawannua/packet-tracer-discord-presence/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 ![Security](https://img.shields.io/badge/security-audited%20%26%20verifiable-brightgreen?logo=shield)
 ![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey)
