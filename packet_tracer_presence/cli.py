@@ -58,17 +58,28 @@ def main():
                     start_time = int(time.time())
                     was_running = True
                 
-                project_name, is_unsaved = window_parser.get_active_project()
-                if not project_name:
+                state = window_parser.get_active_activity()
+                project_name = state.file_name
+                is_unsaved = state.is_unsaved
+                
+                if not project_name or project_name == "Workspace":
                     cmd_file = detector.get_running_project_file()
                     if cmd_file:
                         project_name = cmd_file
                         is_unsaved = False
+                        ext = project_name.split(".")[-1].lower() if "." in project_name else ""
+                        if ext in ["pka", "pkt", "pkz"]:
+                            state.file_type = ext
 
-                if project_name:
-                    rpc.update(project_name, is_unsaved, start_time)
-                else:
-                    rpc.update("Workspace", False, start_time)
+                rpc.update(
+                    project_name=project_name, 
+                    is_unsaved=is_unsaved, 
+                    start_time=start_time,
+                    file_type=state.file_type,
+                    active_device=state.active_device,
+                    device_type=state.device_type,
+                    activity_timer=state.activity_timer
+                )
             else:
                 if was_running:
                     logger.info("Packet Tracer closed")

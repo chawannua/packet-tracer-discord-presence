@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from packet_tracer_presence.cli import main
+from packet_tracer_presence.window_parser import PacketTracerState
 
 def test_cli_main_loop():
     test_args = ["packet_tracer_presence", "--interval", "10", "--client-id", "123", "--verbose"]
@@ -15,14 +16,15 @@ def test_cli_main_loop():
          mock_detector.find_packet_tracer.return_value = True
          
          mock_parser = mock_parser_class.return_value
-         mock_parser.get_active_project.return_value = ("Project1", False)
+         state = PacketTracerState(file_name="Project1", is_unsaved=False)
+         mock_parser.get_active_activity.return_value = state
          
          mock_rpc = mock_rpc_class.return_value
          
          main()
          
          mock_detector.find_packet_tracer.assert_called_once()
-         mock_parser.get_active_project.assert_called_once()
+         mock_parser.get_active_activity.assert_called_once()
          mock_rpc.update.assert_called_once()
          mock_rpc.close.assert_called_once()
 
@@ -40,14 +42,16 @@ def test_cli_main_loop_no_project():
          mock_detector.get_running_project_file.return_value = None
          
          mock_parser = mock_parser_class.return_value
-         mock_parser.get_active_project.return_value = (None, False)
+         state = PacketTracerState(file_name="Workspace", is_unsaved=False)
+         mock_parser.get_active_activity.return_value = state
          
          mock_rpc = mock_rpc_class.return_value
          
          main()
          
          mock_rpc.update.assert_called_once()
-         assert mock_rpc.update.call_args[0][0] == "Workspace"
+         kwargs = mock_rpc.update.call_args[1]
+         assert kwargs["project_name"] == "Workspace"
 
 def test_cli_main_loop_cmdline_fallback():
     test_args = ["packet_tracer_presence"]
@@ -63,14 +67,16 @@ def test_cli_main_loop_cmdline_fallback():
          mock_detector.get_running_project_file.return_value = "Topology.pka"
          
          mock_parser = mock_parser_class.return_value
-         mock_parser.get_active_project.return_value = (None, False)
+         state = PacketTracerState(file_name="Workspace", is_unsaved=False)
+         mock_parser.get_active_activity.return_value = state
          
          mock_rpc = mock_rpc_class.return_value
          
          main()
          
          mock_rpc.update.assert_called_once()
-         assert mock_rpc.update.call_args[0][0] == "Topology.pka"
+         kwargs = mock_rpc.update.call_args[1]
+         assert kwargs["project_name"] == "Topology.pka"
 
 def test_cli_main_loop_closed():
     test_args = ["packet_tracer_presence"]
@@ -85,7 +91,8 @@ def test_cli_main_loop_closed():
          mock_detector.find_packet_tracer.side_effect = [True, False]
          
          mock_parser = mock_parser_class.return_value
-         mock_parser.get_active_project.return_value = (None, False)
+         state = PacketTracerState(file_name="Workspace", is_unsaved=False)
+         mock_parser.get_active_activity.return_value = state
          
          mock_rpc = mock_rpc_class.return_value
          
