@@ -71,3 +71,4 @@ venv.bak/
 *.lnk
 DiscordPrecense.exe
 *.log
+@AutomationLog.txt

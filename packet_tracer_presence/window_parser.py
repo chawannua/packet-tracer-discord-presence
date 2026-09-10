@@ -5,6 +5,10 @@ try:
     import pygetwindow as gw
 except Exception:
     gw = None
+try:
+    import uiautomation as auto
+except Exception:
+    auto = None
 import re
 import os
 import ctypes
@@ -19,8 +23,12 @@ class PacketTracerState:
     file_type: str = "unknown"
     is_unsaved: bool = False
     active_device: Optional[str] = None
+    active_sub_app: Optional[str] = None
     device_type: str = "pt_logo"
     activity_timer: Optional[str] = None
+    completion_percent: Optional[str] = None
+    sim_mode: Optional[str] = "Realtime"
+    view_mode: Optional[str] = "Logical"
 
 class WindowParser:
     def __init__(self):
@@ -164,6 +172,66 @@ class WindowParser:
                 active_device = active_device[:-6]
             state.active_device = active_device
             state.device_type = self._determine_device_type(active_device)
+
+        # Deep Telemetry via uiautomation
+        if auto is not None:
+            try:
+                auto.SetGlobalSearchTimeout(0.2)
+                for win in auto.GetRootControl().GetChildren():
+                    name = win.Name
+                    cname = win.ClassName
+
+                    # Instruction / Activity Dialog:
+                    if "Instruction" in cname or "Activity" in name:
+                        for c, _ in auto.WalkControl(win):
+                            if c.Name and c.Name.startswith("Completion:"):
+                                state.completion_percent = c.Name.split("Completion:")[1].strip()
+                                break
+
+                    # Main Window:
+                    if "Packet Tracer" in name and cname == "CAppWindow":
+                        for c, _ in auto.WalkControl(win):
+                            if c.Name in ("Realtime Mode", "Simulation Mode", "Logical Mode", "Physical Mode"):
+                                toggle = c.GetPattern(auto.PatternId.TogglePattern)
+                                if toggle and toggle.ToggleState == 1:
+                                    if "Realtime" in c.Name:
+                                        state.sim_mode = "Realtime"
+                                    elif "Simulation" in c.Name:
+                                        state.sim_mode = "Simulation"
+                                    elif "Logical" in c.Name:
+                                        state.view_mode = "Logical"
+                                    elif "Physical" in c.Name:
+                                        state.view_mode = "Physical"
+
+                    # Device Window:
+                    if state.active_device and name.startswith(state.active_device) and cname in ("CWorkstationDialog", "CRouterDialog", "CSwitchDialog", "CDeviceDialog"):
+                        sub_title = ""
+                        prompt = ""
+                        for c, _ in auto.WalkControl(win):
+                            if c.ClassName == "QLabel" and "m_titleLabel" in (c.AutomationId or ""):
+                                sub_title = c.Name
+                            if c.ClassName == "QTabBar":
+                                tab_pattern = c.GetPattern(auto.PatternId.SelectionPattern)
+                                if not sub_title and c.Name:
+                                    sub_title = c.Name
+                            if c.ClassName == "CCommandLine":
+                                val_pattern = c.GetPattern(auto.PatternId.ValuePattern)
+                                if val_pattern and val_pattern.Value:
+                                    lines = [ln.strip() for ln in val_pattern.Value.splitlines() if ln.strip()]
+                                    if lines:
+                                        last = lines[-1]
+                                        m = re.search(r"([\w\-]+(?:\([^\)]+\))?[>#])\s*$", last)
+                                        if m:
+                                            prompt = m.group(1)
+                        
+                        if sub_title and prompt:
+                            state.active_sub_app = f"{sub_title} ({prompt})"
+                        elif sub_title:
+                            state.active_sub_app = sub_title
+                        elif prompt:
+                            state.active_sub_app = f"CLI ({prompt})"
+            except Exception as e:
+                pass
 
         return state
 

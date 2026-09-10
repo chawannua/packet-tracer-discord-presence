@@ -68,12 +68,40 @@ def test_rpc_update_unsaved_state():
 
         rpc.presence.update.assert_called_once_with(
             details="Designing New Topology",
-            state="Designing Topology",
+            state="Mode: Realtime (Logical)",
             start=1000,
             large_image="pt_logo",
             large_text="Cisco Packet Tracer",
             small_image="pt_logo",
             small_text="Cisco Packet Tracer"
+        )
+
+def test_rpc_update_active_sub_app():
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(
+            project_name="LAB1.3 CLI config.pka",
+            is_unsaved=False,
+            start_time=1000,
+            file_type="pka",
+            active_device="Laptop0",
+            active_sub_app="Terminal (Switch#)",
+            device_type="laptop",
+            completion_percent="75%"
+        )
+
+        rpc.presence.update.assert_called_once_with(
+            details="Lab: LAB1.3 CLI config.pka (75%)",
+            state="Laptop0 > Terminal (Switch#)",
+            start=1000,
+            large_image="pt_logo",
+            large_text="Cisco Packet Tracer",
+            small_image="laptop",
+            small_text="Laptop0: Terminal (Switch#)"
         )
 
 def test_rpc_update_rate_limiting():
@@ -98,8 +126,12 @@ def test_rpc_update_state_deduplication():
             "is_unsaved": False,
             "file_type": "unknown",
             "active_device": None,
+            "active_sub_app": None,
             "device_type": "pt_logo",
-            "activity_timer": None
+            "activity_timer": None,
+            "completion_percent": None,
+            "sim_mode": "Realtime",
+            "view_mode": "Logical"
         }
         rpc._last_state = state
 

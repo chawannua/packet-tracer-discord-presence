@@ -23,13 +23,18 @@ def main():
     args = parser.parse_args()
     
     handlers = []
-    if sys.stderr is not None:
-        handlers.append(logging.StreamHandler(sys.stderr))
-    else:
-        import os
-        log_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        log_file = os.path.join(log_dir, "presence.log")
+    log_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    log_file = os.path.join(log_dir, "presence.log")
+    try:
         handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+    except Exception:
+        pass
+
+    try:
+        if sys.stderr and hasattr(sys.stderr, "isatty") and sys.stderr.isatty():
+            handlers.append(logging.StreamHandler(sys.stderr))
+    except Exception:
+        pass
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -50,43 +55,50 @@ def main():
     
     try:
         while True:
-            is_running = detector.find_packet_tracer()
-            
-            if is_running:
-                if not was_running:
-                    logger.info("Packet Tracer started")
-                    start_time = int(time.time())
-                    was_running = True
+            try:
+                is_running = detector.find_packet_tracer()
                 
-                state = window_parser.get_active_activity()
-                project_name = state.file_name
-                is_unsaved = state.is_unsaved
-                
-                if not project_name or project_name == "Workspace":
-                    cmd_file = detector.get_running_project_file()
-                    if cmd_file:
-                        project_name = cmd_file
-                        is_unsaved = False
-                        ext = project_name.split(".")[-1].lower() if "." in project_name else ""
-                        if ext in ["pka", "pkt", "pkz"]:
-                            state.file_type = ext
-
-                rpc.update(
-                    project_name=project_name, 
-                    is_unsaved=is_unsaved, 
-                    start_time=start_time,
-                    file_type=state.file_type,
-                    active_device=state.active_device,
-                    device_type=state.device_type,
-                    activity_timer=state.activity_timer
-                )
-            else:
-                if was_running:
-                    logger.info("Packet Tracer closed")
-                    rpc.clear()
-                    start_time = None
-                    was_running = False
+                if is_running:
+                    if not was_running:
+                        logger.info("Packet Tracer started")
+                        start_time = int(time.time())
+                        was_running = True
                     
+                    state = window_parser.get_active_activity()
+                    project_name = state.file_name
+                    is_unsaved = state.is_unsaved
+                    
+                    if not project_name or project_name == "Workspace":
+                        cmd_file = detector.get_running_project_file()
+                        if cmd_file:
+                            project_name = cmd_file
+                            is_unsaved = False
+                            ext = project_name.split(".")[-1].lower() if "." in project_name else ""
+                            if ext in ["pka", "pkt", "pkz"]:
+                                state.file_type = ext
+
+                    rpc.update(
+                        project_name=project_name, 
+                        is_unsaved=is_unsaved, 
+                        start_time=start_time,
+                        file_type=state.file_type,
+                        active_device=state.active_device,
+                        active_sub_app=state.active_sub_app,
+                        device_type=state.device_type,
+                        activity_timer=state.activity_timer,
+                        completion_percent=state.completion_percent,
+                        sim_mode=state.sim_mode,
+                        view_mode=state.view_mode
+                    )
+                else:
+                    if was_running:
+                        logger.info("Packet Tracer closed")
+                        rpc.clear()
+                        start_time = None
+                        was_running = False
+            except Exception as loop_err:
+                logger.debug(f"Loop iteration error: {loop_err}")
+                        
             time.sleep(args.interval)
             
     except KeyboardInterrupt:

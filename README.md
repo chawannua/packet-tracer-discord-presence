@@ -86,9 +86,16 @@ Many legacy Discord Rich Presence scripts for Cisco Packet Tracer distributed pr
 ```
 
 When active, your Discord profile displays:
-- **Details**: `Editing Enterprise_WAN_v2.pkt` (or `Editing Workspace` / `Idling`)
-- **State**: `Saved` or `Unsaved changes`
-- **Large Image**: Cisco Packet Tracer logo
+- **Details**: 
+  - Lab with live assessment percentage: `Lab: <LabName>.pka (75%)` (or `(Timer: 00:15:30)`)
+  - Topology name: `Topology: <ProjectName>.pkt`
+  - Unsaved canvas: `Designing New Topology`
+- **State**: 
+  - Active Device & Applet / IOS Prompt: `<Device> > <Applet> (<Prompt>)` (e.g. `Laptop0 > Terminal (Switch#)` or `Router0 > CLI (Router(config)#)`)
+  - Device Configuration: `Configuring: <Device>` (e.g. `Configuring: Router0`)
+  - Canvas Workspace Mode: `Mode: <Realtime|Simulation> (<Logical|Physical>)`
+- **Large Image**: Cisco Packet Tracer logo (`Cisco Packet Tracer`)
+- **Small Image & Tooltip**: Dynamic device hardware icon (`router`, `switch`, `laptop`, `pc`, `server`, `phone`) with current status tooltip
 - **Timestamp**: Elapsed session duration
 
 ---
