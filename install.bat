@@ -9,13 +9,36 @@ echo.
 
 :: 1. Check Python installation
 where python >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [ERROR] Python is not installed or not added to your system PATH!
-    echo Please install Python 3.9 or newer from https://www.python.org/
-    pause
-    exit /b 1
-)
+if %errorlevel% equ 0 goto :python_ok
 
+echo [!] Python was not found on your PATH.
+echo.
+
+where winget >nul 2>&1
+if %errorlevel% neq 0 goto :no_winget
+
+set /p INSTALLPY="[?] Install Python 3.12 automatically via winget? (Y/N): "
+if /i not "%INSTALLPY%"=="Y" goto :no_winget
+
+echo [*] Installing Python 3.12 via winget...
+winget install -e --id Python.Python.3.12
+echo [*] Re-checking for Python...
+where python >nul 2>&1
+if %errorlevel% equ 0 goto :python_ok
+
+echo.
+echo [!] Python was installed but is not on this window's PATH yet.
+echo     Close this window, open a NEW terminal, and run install.bat again.
+pause
+exit /b 1
+
+:no_winget
+echo [ERROR] Python is not installed or not added to your system PATH!
+echo Please install Python 3.9 or newer from https://www.python.org/
+pause
+exit /b 1
+
+:python_ok
 echo [*] Python detected. Checking virtual environment...
 
 :: 2. Create virtual environment if it does not exist

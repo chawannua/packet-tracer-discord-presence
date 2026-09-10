@@ -16,9 +16,9 @@ A lightweight, secure, and modern Discord Rich Presence integration for **Cisco 
 - [Key Features](#key-features)
 - [How It Works](#how-it-works)
 - [Quick Start](#quick-start)
-  - [Option 1: 1-Click Quick Install (Windows)](#-option-1-1-click-quick-install-windows---easiest)
-  - [Option 2: Manual Python Setup (Windows / Linux)](#option-2-manual-python-setup-windows--linux)
-  - [Option 3: Verified Standalone Executable](#option-3-verified-standalone-executable-windows)
+  - [Recommended: 1-Click Install (Windows)](#-recommended-1-click-install-windows)
+  - [Manual Python Setup (Windows / Linux)](#manual-python-setup-windows--linux)
+  - [Optional: Standalone Executable](#optional-standalone-executable-windows)
 - [Command-Line Flags & Configuration](#command-line-flags--configuration)
 - [Troubleshooting](#troubleshooting)
 - [Development & Testing](#development--testing)
@@ -102,25 +102,26 @@ When active, your Discord profile displays:
 
 ## Quick Start
 
-### ⚡ Option 1: 1-Click Quick Install (Windows - Easiest)
+**Install from source — it is the supported path.** It takes two commands, never gets flagged by antivirus, and auto-starts on login. The standalone `.exe` is optional and comes with a caveat (see below).
 
-If you are on Windows, you can install and start the silent background presence service in seconds:
+### ⚡ Recommended: 1-Click Install (Windows)
 
-1. Clone or download the repository:
+1. Clone the repository:
    ```cmd
    git clone https://github.com/chawannua/packet-tracer-discord-presence.git
    cd packet-tracer-discord-presence
    ```
-2. Simply double-click **`install.bat`** (or run `.\install.ps1` in PowerShell).
+2. Double-click **`install.bat`** (or run `.\install.ps1` in PowerShell).
 
-**That's it!** The installer will:
-- Automatically create a dedicated `.venv` and install all required libraries.
-- Configure a silent Windows Startup entry so it starts automatically in the background on login.
-- Launch the background presence process immediately without any console popup.
+That's it. The installer will:
+- Create a dedicated `.venv` and install all required libraries.
+- Offer to install Python via `winget` if you don't have it.
+- Configure a silent Windows Startup entry so it runs automatically on login.
+- Launch the background presence process immediately, with no console popup.
 
 ---
 
-### Option 2: Manual Python Setup (Windows / Linux)
+### Manual Python Setup (Windows / Linux)
 
 If you prefer to run or customize the source manually:
 
@@ -163,29 +164,30 @@ python main.py --verbose
 
 ---
 
-### Option 3: Verified Standalone Executable (Windows)
+### Optional: Standalone Executable (Windows)
 
-If you prefer a standalone `.exe` without configuring Python:
+> **Heads up:** the release build is unsigned, and Windows Defender flags unsigned PyInstaller binaries as a **false positive** — it may quarantine or auto-delete the download. This is a known PyInstaller issue, not a problem with this code. If it happens, either allow the file in Defender (**Windows Security → Virus & threat protection → Protection history → Allow**) or just use the source install above, which avoids the issue entirely.
 
-1. Navigate to the latest release on the [Releases Page](https://github.com/chawannua/packet-tracer-discord-presence/releases).
-2. Download `PacketTracerPresence.exe` and `checksums.txt`.
-3. Verify the binary checksum with PowerShell:
+If you'd rather not install Python:
+
+1. Go to the [Releases Page](https://github.com/chawannua/packet-tracer-discord-presence/releases).
+2. Download `PacketTracerPresence-windows.zip` and `checksums.txt`.
+3. Verify the checksum in PowerShell:
    ```powershell
-   Get-FileHash -Path PacketTracerPresence.exe -Algorithm SHA256
+   Get-FileHash -Path PacketTracerPresence-windows.zip -Algorithm SHA256
    Get-Content checksums.txt
    ```
-   Compare the output hash with `checksums.txt` to guarantee binary authenticity.
-4. Double-click `PacketTracerPresence.exe`.
+4. Extract the zip and run `PacketTracerPresence.exe` from inside the extracted folder.
+   Keep the folder intact — the exe needs the files beside it.
 
-#### Option B: Build the Standalone Executable Yourself
-You can build your own standalone binary using PyInstaller:
+#### Build it yourself
 ```powershell
 pip install pyinstaller -r requirements.txt
-pyinstaller --noconfirm --onefile --name "PacketTracerPresence" --clean main.py
+pyinstaller --noconfirm --onedir --name "PacketTracerPresence" --clean main.py
 ```
-The compiled binary will be located in the `dist/` directory:
+Output lands in `dist\PacketTracerPresence\`:
 ```powershell
-.\dist\PacketTracerPresence.exe --verbose
+.\dist\PacketTracerPresence\PacketTracerPresence.exe --verbose
 ```
 
 ---
@@ -226,9 +228,14 @@ python main.py --client-id 123456789012345678
 - If you have an unsaved or untitled project, Packet Tracer sets the window title to `Cisco Packet Tracer` without a filename. Save your project (`.pkt`) to display the project name.
 - If using an unusual Packet Tracer fork or version, verify its process name matches one of `PacketTracer.exe`, `PacketTracer7.exe`, `PacketTracer8.exe`, `PacketTracer9.exe`, or `PacketTracer`.
 
-### 3. Antivirus warns about PyInstaller executable
-- Windows Defender sometimes flags newly built PyInstaller single-file executables due to heuristic packaging signatures.
-- **Remedy**: Build the executable locally with `pyinstaller` on your machine, run via Python directly (Method 1), or verify the SHA-256 hash against our GitHub Actions release provenance.
+### 3. Windows Defender flagged or deleted the .exe
+This is a **false positive**. Defender flags the stock PyInstaller bootloader generically because malware also uses PyInstaller, and unsigned binaries have no reputation to vouch for them.
+
+- **Best fix**: use the [1-click source install](#-recommended-1-click-install-windows). No binary, no flag.
+- **Or allow it**: Windows Security → Virus & threat protection → Protection history → find the item → **Allow**.
+- **Or verify then allow**: check the SHA-256 against `checksums.txt` from the release (built in public by [GitHub Actions](.github/workflows/build-release.yml)), then allow it.
+
+Releases ship as a `--onedir` zip rather than a single self-extracting `.exe`, which avoids the runtime-unpacking behavior that triggers most heuristics.
 
 ---
 

@@ -32,25 +32,35 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      # --onedir (not --onefile): a onefile build unpacks itself to %TEMP% at
+      # launch, which pattern-matches self-extracting packers and is the main
+      # trigger for Windows Defender false-positives on unsigned PyInstaller
+      # binaries. onedir ships the runtime beside the exe instead.
       - name: Build standalone executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --onefile --name "PacketTracerPresence" --clean main.py
+          pyinstaller --noconfirm --onedir --name "PacketTracerPresence" --clean main.py
 
       - name: Verify build artifact
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist/PacketTracerPresence.exe")) {
-            Write-Error "dist/PacketTracerPresence.exe was not created!"
+          if (-not (Test-Path "dist/PacketTracerPresence/PacketTracerPresence.exe")) {
+            Write-Error "dist/PacketTracerPresence/PacketTracerPresence.exe was not created!"
             exit 1
           }
-          $item = Get-Item "dist/PacketTracerPresence.exe"
+          $item = Get-Item "dist/PacketTracerPresence/PacketTracerPresence.exe"
           Write-Host "Build successful: $($item.FullName) ($($item.Length) bytes)"
+
+      - name: Package onedir build as zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/PacketTracerPresence/*" -DestinationPath "dist/PacketTracerPresence-windows.zip" -Force
+          Write-Host "Packaged: dist/PacketTracerPresence-windows.zip"
 
       - name: Generate SHA-256 Checksum
         shell: pwsh
         run: |
-          $hash = (Get-FileHash -Path "dist/PacketTracerPresence.exe" -Algorithm SHA256).Hash.ToLower()
-          "$hash  PacketTracerPresence.exe" | Out-File -Encoding ascii -FilePath "dist/checksums.txt"
+          $hash = (Get-FileHash -Path "dist/PacketTracerPresence-windows.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  PacketTracerPresence-windows.zip" | Out-File -Encoding ascii -FilePath "dist/checksums.txt"
           Write-Host "SHA-256 Checksum generated:"
           Get-Content "dist/checksums.txt"
 
@@ -59,7 +69,7 @@ jobs:
         with:
           name: PacketTracerPresence-windows
           path: |
-            dist/PacketTracerPresence.exe
+            dist/PacketTracerPresence-windows.zip
             dist/checksums.txt
 
       - name: Create GitHub Release
@@ -67,7 +77,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            dist/PacketTracerPresence.exe
+            dist/PacketTracerPresence-windows.zip
             dist/checksums.txt
           generate_release_notes: true
           draft: false
