@@ -5,7 +5,13 @@ import threading
 import time
 import logging
 from pypresence import Presence
-from pypresence.exceptions import DiscordNotFound, InvalidID, PipeClosed
+from pypresence.exceptions import (
+    ArgumentError,
+    DiscordNotFound,
+    InvalidArgument,
+    InvalidID,
+    PipeClosed,
+)
 from .config import (
     DISCORD_CLIENT_ID,
     RECONNECT_TIMEOUT,
@@ -92,8 +98,18 @@ class RPCManager:
             self._connect_retry_time = now + RECONNECT_TIMEOUT
             return False
         except TimeoutError as e:
+            # The worker thread is still inside Presence.connect(), mid-handshake,
+            # and will go on to assign this object's event loop and sockets.
+            # Retrying on the same Presence races it and can wedge the client for
+            # the rest of the session, so abandon it and start the next attempt clean.
             logger.warning(f"Discord RPC connect timed out: {e}")
             self._connect_retry_time = now + RECONNECT_TIMEOUT
+            self.presence = Presence(self.client_id)
+            return False
+        except Exception as e:
+            logger.warning(f"Discord RPC connect failed unexpectedly: {e}")
+            self._connect_retry_time = now + RECONNECT_TIMEOUT
+            self.presence = Presence(self.client_id)
             return False
 
     def update(self, project_name: str, is_unsaved: bool, start_time: int, file_type: str = "unknown", active_device: str = None, active_sub_app: str = None, device_type: str = "pt_logo", activity_timer: str = None, completion_percent: str = None, sim_mode: str = "Realtime", view_mode: str = "Logical", workspace_tool: str = None):
@@ -205,11 +221,13 @@ class RPCManager:
                 _call_with_timeout(
                     self.presence.update, PIPE_TIMEOUT, buttons=self._buttons, **payload
                 )
-            except (PipeClosed, TimeoutError):
-                raise
-            except Exception as button_err:
-                # Some pypresence/Discord combinations reject the buttons field.
-                # Losing the buttons beats losing the whole presence.
+            except (TypeError, InvalidArgument, ArgumentError) as button_err:
+                # Only argument/serialization errors mean the buttons field itself
+                # is unsupported. Transport failures (ResponseTimeout, ServerError,
+                # InvalidPipe, DiscordError, the AssertionError send_data raises on a
+                # dead writer) must NOT land here: retrying would write a second
+                # SET_ACTIVITY frame whose read consumes the first frame's response,
+                # desyncing the pipe, and would disable buttons Discord never rejected.
                 if self._buttons is not None:
                     logger.warning(
                         "Discord rejected presence buttons (%s); retrying without them",

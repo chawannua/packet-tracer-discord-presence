@@ -316,3 +316,56 @@ def test_resolve_project_start_survives_blank_between_two_reads_of_same_file():
     start, project = cli.resolve_project_start("LabA.pkt", project, start, 6000)
     assert start == 1000
     assert project == "LabA.pkt"
+
+
+def test_remove_lock_file_is_a_noop_under_tests(tmp_path):
+    """Running the suite must never delete a live daemon's lock file.
+
+    main()'s finally always calls remove_lock_file(), so without this guard the
+    ~8 tests that call main() strip the running production daemon of its lock:
+    a second instance can then start, and stop_presence.bat loses its PID.
+    """
+    lock = tmp_path / ".daemon.lock"
+    lock.write_text("4242")
+
+    with patch('packet_tracer_presence.cli.LOCK_FILE', str(lock)), \
+         patch('packet_tracer_presence.cli._running_under_tests', return_value=True):
+        cli.remove_lock_file()
+
+    assert lock.exists()
+    assert lock.read_text() == "4242"
+
+
+def test_remove_lock_file_leaves_another_instances_lock_alone(tmp_path):
+    """ensure_single_instance() can return True without owning the lock (its
+    except path), so removal must verify ownership rather than assume it."""
+    lock = tmp_path / ".daemon.lock"
+    lock.write_text(str(os.getpid() + 1))
+
+    with patch('packet_tracer_presence.cli.LOCK_FILE', str(lock)), \
+         patch('packet_tracer_presence.cli._running_under_tests', return_value=False):
+        cli.remove_lock_file()
+
+    assert lock.exists()
+
+
+def test_remove_lock_file_removes_our_own_lock(tmp_path):
+    lock = tmp_path / ".daemon.lock"
+    lock.write_text(str(os.getpid()))
+
+    with patch('packet_tracer_presence.cli.LOCK_FILE', str(lock)), \
+         patch('packet_tracer_presence.cli._running_under_tests', return_value=False):
+        cli.remove_lock_file()
+
+    assert not lock.exists()
+
+
+def test_remove_lock_file_tolerates_corrupt_lock(tmp_path):
+    lock = tmp_path / ".daemon.lock"
+    lock.write_text("not-a-pid")
+
+    with patch('packet_tracer_presence.cli.LOCK_FILE', str(lock)), \
+         patch('packet_tracer_presence.cli._running_under_tests', return_value=False):
+        cli.remove_lock_file()
+
+    assert lock.exists()

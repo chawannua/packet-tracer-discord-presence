@@ -16,6 +16,8 @@ from unittest.mock import patch
 import psutil
 import pytest
 
+from packet_tracer_presence.window_parser import PacketTracerState
+
 FAKE_PROCESS_NAME = "PacketTracer9.exe"  # already in KNOWN_PROCESS_NAMES
 
 
@@ -111,7 +113,16 @@ def test_daemon_exits_promptly_when_process_closes(fake_packet_tracer):
             old_argv = sys.argv
             sys.argv = argv
             try:
-                with patch("psutil.process_iter", side_effect=_process_iter_stub(fake_packet_tracer.pid)):
+                # The real ProcessDetector is deliberately left unpatched - it is
+                # what this test exercises. RPCManager and WindowParser are not:
+                # unpatched they open Discord's IPC pipe and set the developer's
+                # actual Rich Presence, and drive real UIAutomation/COM scanning,
+                # just from running the test suite.
+                state = PacketTracerState(file_name="Project1", is_unsaved=False)
+                with patch("psutil.process_iter", side_effect=_process_iter_stub(fake_packet_tracer.pid)), \
+                        patch("packet_tracer_presence.cli.RPCManager"), \
+                        patch("packet_tracer_presence.cli.WindowParser") as mock_parser_class:
+                    mock_parser_class.return_value.get_active_activity.return_value = state
                     cli.main()
             finally:
                 sys.argv = old_argv

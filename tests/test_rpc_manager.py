@@ -1,10 +1,18 @@
 """
 Unit tests for packet_tracer_presence.rpc_manager
 """
+import logging
 import time
 import pytest
 from unittest.mock import MagicMock, patch
-from pypresence.exceptions import DiscordNotFound, PipeClosed
+from pypresence.exceptions import (
+    DiscordNotFound,
+    InvalidArgument,
+    InvalidPipe,
+    PipeClosed,
+    ResponseTimeout,
+    ServerError,
+)
 from packet_tracer_presence.rpc_manager import RPCManager, _progress_bar
 from packet_tracer_presence.config import PRESENCE_BUTTONS
 
@@ -328,6 +336,82 @@ def test_rpc_update_falls_back_when_discord_rejects_buttons():
         assert "buttons" not in rpc.presence.update.call_args_list[1].kwargs
         assert rpc._buttons is None
         assert rpc._last_state is not None
+
+
+@pytest.mark.parametrize("transport_error", [
+    ServerError("discord hiccup"),
+    ResponseTimeout(),
+    InvalidPipe(),
+    AssertionError(),  # pypresence send_data raises this when sock_writer is None
+])
+def test_rpc_update_transport_error_does_not_disable_buttons(transport_error):
+    """Only argument errors mean "buttons unsupported".
+
+    A transport failure must not be misread as a buttons rejection: retrying
+    would write a second SET_ACTIVITY frame whose response read consumes the
+    first frame's response, desyncing the pipe, and would permanently drop
+    buttons that Discord never actually rejected.
+    """
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+        rpc.presence.update.side_effect = transport_error
+
+        rpc.update(project_name="NetworkLab.pkt", is_unsaved=False, start_time=1000, file_type="pkt")
+
+        assert rpc.presence.update.call_count == 1, "must not write a second frame"
+        assert rpc._buttons is not None, "buttons must survive a transport failure"
+
+
+def test_rpc_update_invalid_argument_does_disable_buttons():
+    """The genuine 'buttons unsupported' signal still triggers the fallback."""
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+        rpc.presence.update.side_effect = [InvalidArgument("buttons", "none"), None]
+
+        rpc.update(project_name="NetworkLab.pkt", is_unsaved=False, start_time=1000, file_type="pkt")
+
+        assert rpc.presence.update.call_count == 2
+        assert rpc._buttons is None
+
+
+def test_rpc_connect_timeout_rebuilds_presence():
+    """A timed-out connect leaves a worker thread mid-handshake on the old
+    Presence; reusing it races that thread's loop/socket assignment and can
+    wedge the client silently for the rest of the session."""
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        stale = MagicMock()
+        rpc.presence = stale
+
+        with patch("packet_tracer_presence.rpc_manager._call_with_timeout",
+                   side_effect=TimeoutError("timed out")):
+            assert rpc.connect() is False
+
+        assert rpc.presence is not stale
+        assert rpc.connected is False
+
+
+def test_rpc_connect_unexpected_error_is_logged_not_swallowed(caplog):
+    """A RuntimeError from a racing event loop previously escaped every handler
+    and died in a DEBUG log line, invisible at the default level."""
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        stale = MagicMock()
+        rpc.presence = stale
+
+        with patch("packet_tracer_presence.rpc_manager._call_with_timeout",
+                   side_effect=RuntimeError("This event loop is already running")):
+            with caplog.at_level(logging.WARNING):
+                assert rpc.connect() is False
+
+        assert any("This event loop is already running" in r.message for r in caplog.records)
+        assert rpc.presence is not stale
 
 
 def test_rpc_update_pka_completion_renders_bar():

@@ -87,10 +87,26 @@ def resolve_project_start(project_name, last_project, start_time, now):
 
 
 def remove_lock_file():
+    """Remove the lock file only when this process is the one that wrote it.
+
+    Two paths reach main()'s finally without owning the lock: tests (which skip
+    ensure_single_instance entirely) and the production except path, which
+    returns True without taking it. Deleting unconditionally in either case
+    strips a *different* live daemon of its lock, letting a second instance
+    start and leaving stop_presence.bat with no PID to kill.
+    """
+    if _running_under_tests():
+        return
     try:
-        if os.path.exists(LOCK_FILE):
-            os.remove(LOCK_FILE)
-    except Exception:
+        with open(LOCK_FILE, "r") as f:
+            owner_pid = int(f.read().strip())
+    except (ValueError, OSError):
+        return
+    if owner_pid != os.getpid():
+        return
+    try:
+        os.remove(LOCK_FILE)
+    except OSError:
         pass
 
 def main():
