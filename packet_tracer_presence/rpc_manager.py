@@ -37,7 +37,7 @@ class RPCManager:
             self._connect_retry_time = now + RECONNECT_TIMEOUT
             return False
 
-    def update(self, project_name: str, is_unsaved: bool, start_time: int, file_type: str = "unknown", active_device: str = None, active_sub_app: str = None, device_type: str = "pt_logo", activity_timer: str = None, completion_percent: str = None, sim_mode: str = "Realtime", view_mode: str = "Logical"):
+    def update(self, project_name: str, is_unsaved: bool, start_time: int, file_type: str = "unknown", active_device: str = None, active_sub_app: str = None, device_type: str = "pt_logo", activity_timer: str = None, completion_percent: str = None, sim_mode: str = "Realtime", view_mode: str = "Logical", workspace_tool: str = None):
         if not self.connect():
             return
 
@@ -51,7 +51,8 @@ class RPCManager:
             "activity_timer": activity_timer,
             "completion_percent": completion_percent,
             "sim_mode": sim_mode,
-            "view_mode": view_mode
+            "view_mode": view_mode,
+            "workspace_tool": workspace_tool
         }
         
         if state_dict == self._last_state:
@@ -63,27 +64,26 @@ class RPCManager:
             return
 
         # Details
-        details = f"Editing {project_name}" if project_name else "Idling"
-        
-        if file_type == 'pka':
+        if is_unsaved or "Untitled" in str(project_name) or "New" in str(project_name) or not project_name or project_name == "Workspace":
+            details = "Designing New Topology"
+        elif file_type == 'pka':
             prefix = f"Lab: {project_name}" if project_name else "Lab"
             if completion_percent and activity_timer:
                 details = f"{prefix} ({completion_percent} • {activity_timer})"
             elif completion_percent:
                 details = f"{prefix} ({completion_percent})"
             elif activity_timer:
-                details = f"{prefix} (Timer: {activity_timer})"
+                details = f"{prefix} ({activity_timer})"
             else:
                 details = prefix
         elif file_type == 'pkt':
             prefix = f"Topology: {project_name}" if project_name else "Topology"
             if activity_timer:
-                details = f"{prefix} (Timer: {activity_timer})"
+                details = f"{prefix} ({activity_timer})"
             else:
                 details = prefix
-            
-        if is_unsaved or "Untitled" in str(project_name) or "New" in str(project_name):
-            details = "Designing New Topology"
+        else:
+            details = f"Editing {project_name}" if project_name else "Idling"
 
         if len(details) > 128:
             details = details[:125] + "..."
@@ -93,25 +93,35 @@ class RPCManager:
             if active_sub_app:
                 state_str = f"{active_device} > {active_sub_app}"
             else:
-                state_str = f"Configuring: {active_device}"
+                state_str = f"Configuring {active_device}"
         else:
-            state_str = f"Mode: {sim_mode} ({view_mode})"
+            if workspace_tool:
+                state_str = workspace_tool
+            else:
+                state_str = f"Designing {view_mode} Topology ({sim_mode})"
             
         if len(state_str) > 128:
             state_str = state_str[:125] + "..."
 
         # Images and tooltips (Discord uploaded assets: 'packet_tracer' and 'cisco')
         large_image = "packet_tracer"
-        large_text = "Cisco Packet Tracer"
-        small_image = "cisco"
-        
-        if active_device:
-            if active_sub_app:
-                small_text = f"{active_device}: {active_sub_app}"
+        if file_type == 'pka':
+            if completion_percent:
+                large_text = f"Cisco Packet Tracer | Progress: {completion_percent}"
             else:
-                small_text = f"Configuring {active_device}"
+                large_text = f"Cisco Packet Tracer | {sim_mode} Mode"
         else:
-            small_text = "Cisco Packet Tracer"
+            large_text = f"Cisco Packet Tracer | {sim_mode} ({view_mode})"
+
+        if len(large_text) > 128:
+            large_text = large_text[:125] + "..."
+
+        small_image = "cisco"
+        if active_device:
+            dev_cap = (device_type or "device").capitalize()
+            small_text = f"{active_device} ({dev_cap})"
+        else:
+            small_text = "Cisco Systems"
             
         if len(small_text) > 128:
             small_text = small_text[:125] + "..."

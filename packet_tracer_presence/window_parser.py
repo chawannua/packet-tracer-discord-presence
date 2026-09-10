@@ -29,8 +29,97 @@ class PacketTracerState:
     completion_percent: Optional[str] = None
     sim_mode: Optional[str] = "Realtime"
     view_mode: Optional[str] = "Logical"
+    workspace_tool: Optional[str] = None
+
+TAB_MAPPINGS = {
+    "Physical": "Physical (Hardware)",
+    "Config": "Config Tab",
+    "CLI": "CLI",
+    "Services": "Services",
+    "Programming": "Programming",
+    "Attributes": "Attributes",
+}
+
+KNOWN_APPLETS = [
+    "Terminal",
+    "Command Prompt",
+    "IP Configuration",
+    "Web Browser",
+    "PC Wireless",
+    "Text Editor",
+    "Email",
+    "Traffic Generator",
+    "MIB Browser",
+    "Cisco Webex",
+    "VPN",
+    "Dial-up",
+    "Bluetooth",
+    "Firewall",
+    "Netflow Collector",
+    "IoT IDE",
+]
+
+WORKSPACE_TOOLS = {
+    "Inspect (I)": "Inspecting Network Components",
+    "Delete (Del)": "Deleting Components",
+    "Place Note (N)": "Annotating Topology (Notes)",
+    "Add Simple PDU (P)": "Testing Connectivity (Simple PDU Ping)",
+    "Add Complex PDU (C)": "Sending Complex PDU Packets",
+}
+
+def parse_cli_mode(text: str) -> Optional[str]:
+    r"""
+    Parse CLI/terminal buffer or last line to identify specific Cisco/shell mode.
+    Modes:
+    - 'Press RETURN to get started' -> [Console Connected]
+    - (config-subif)# -> [Sub-Interface Config]
+    - (config-if)# -> [Interface Config]
+    - (config-router)# -> [Routing Config]
+    - (config-line)# -> [Line/Console Config]
+    - (config-vlan)# -> [VLAN Config]
+    - (dhcp-config)# -> [DHCP Config]
+    - (config)# -> [Global Config]
+    - ^[A-Za-z]:\\.*>\s*$ -> [Command Shell]
+    - .*#\s*$ -> [Privileged Mode]
+    - .*>\s*$ -> [User EXEC Mode]
+    """
+    if not text:
+        return None
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        if "Press RETURN to get started" in text:
+            return "[Console Connected]"
+        return None
+    last = lines[-1]
+
+    if "Press RETURN to get started" in last:
+        return "[Console Connected]"
+    if re.search(r"\(config-subif\)#\s*$", last):
+        return "[Sub-Interface Config]"
+    if re.search(r"\(config-if\)#\s*$", last):
+        return "[Interface Config]"
+    if re.search(r"\(config-router\)#\s*$", last):
+        return "[Routing Config]"
+    if re.search(r"\(config-line\)#\s*$", last):
+        return "[Line/Console Config]"
+    if re.search(r"\(config-vlan\)#\s*$", last):
+        return "[VLAN Config]"
+    if re.search(r"\(dhcp-config\)#\s*$", last):
+        return "[DHCP Config]"
+    if re.search(r"\(config\)#\s*$", last):
+        return "[Global Config]"
+    if re.search(r"^[A-Za-z]:\\.*>\s*$", last):
+        return "[Command Shell]"
+    if re.search(r"#\s*$", last):
+        return "[Privileged Mode]"
+    if re.search(r">\s*$", last):
+        return "[User EXEC Mode]"
+    if "Press RETURN to get started" in text:
+        return "[Console Connected]"
+    return None
 
 class WindowParser:
+    parse_cli_mode = staticmethod(parse_cli_mode)
     def __init__(self):
         # Base title regex for PT 8/9 and 7
         # Format: Cisco Packet Tracer - <FilePathOrName> [- <Profile>] [- <Timestamp>]
@@ -92,6 +181,7 @@ class WindowParser:
 
         pt_pids = self._get_pt_pids()
         if not pt_pids:
+            state.workspace_tool = f"Designing {state.view_mode} Topology ({state.sim_mode})"
             return state
 
         main_title = None
@@ -191,47 +281,104 @@ class WindowParser:
                     # Main Window:
                     if "Packet Tracer" in name and cname == "CAppWindow":
                         for c, _ in auto.WalkControl(win):
-                            if c.Name in ("Realtime Mode", "Simulation Mode", "Logical Mode", "Physical Mode"):
+                            c_name = c.Name or ""
+                            if c_name in ("Realtime Mode", "Simulation Mode", "Logical Mode", "Physical Mode"):
                                 toggle = c.GetPattern(auto.PatternId.TogglePattern)
                                 if toggle and toggle.ToggleState == 1:
-                                    if "Realtime" in c.Name:
+                                    if "Realtime" in c_name:
                                         state.sim_mode = "Realtime"
-                                    elif "Simulation" in c.Name:
+                                    elif "Simulation" in c_name:
                                         state.sim_mode = "Simulation"
-                                    elif "Logical" in c.Name:
+                                    elif "Logical" in c_name:
                                         state.view_mode = "Logical"
-                                    elif "Physical" in c.Name:
+                                    elif "Physical" in c_name:
                                         state.view_mode = "Physical"
+
+                            for tool_btn, tool_desc in WORKSPACE_TOOLS.items():
+                                if tool_btn == c_name or tool_btn in c_name:
+                                    toggle = c.GetPattern(auto.PatternId.TogglePattern)
+                                    if toggle and toggle.ToggleState == 1:
+                                        state.workspace_tool = tool_desc
+                                        break
+                                    sel = c.GetPattern(auto.PatternId.SelectionItemPattern)
+                                    if sel and sel.IsSelected:
+                                        state.workspace_tool = tool_desc
+                                        break
 
                     # Device Window:
                     if state.active_device and name.startswith(state.active_device) and cname in ("CWorkstationDialog", "CRouterDialog", "CSwitchDialog", "CDeviceDialog"):
                         sub_title = ""
-                        prompt = ""
+                        selected_tab = None
+                        terminal_text = ""
                         for c, _ in auto.WalkControl(win):
-                            if c.ClassName == "QLabel" and "m_titleLabel" in (c.AutomationId or ""):
-                                sub_title = c.Name
-                            if c.ClassName == "QTabBar":
-                                tab_pattern = c.GetPattern(auto.PatternId.SelectionPattern)
-                                if not sub_title and c.Name:
-                                    sub_title = c.Name
-                            if c.ClassName == "CCommandLine":
+                            c_name = c.Name or ""
+                            c_class = c.ClassName or ""
+                            c_auto_id = c.AutomationId or ""
+
+                            # Tab selection detection
+                            if c_class == "QTabBar" or getattr(c, "ControlType", None) == getattr(auto.ControlType, "TabItemControl", None) or "TabItem" in getattr(c, "ControlTypeName", ""):
+                                sel_item = c.GetPattern(auto.PatternId.SelectionItemPattern)
+                                if sel_item and sel_item.IsSelected and c_name:
+                                    selected_tab = c_name
+                                elif c_class == "QTabBar":
+                                    sel_pat = c.GetPattern(auto.PatternId.SelectionPattern)
+                                    if sel_pat:
+                                        try:
+                                            for item in sel_pat.GetSelection():
+                                                if item.Name:
+                                                    selected_tab = item.Name
+                                                    break
+                                        except Exception:
+                                            pass
+                                    if not selected_tab and c_name and c_name in ("Physical", "Config", "CLI", "Desktop", "Services", "Programming", "Attributes"):
+                                        selected_tab = c_name
+
+                            # Applet detection on Desktop
+                            if c_class == "QLabel" and "m_titleLabel" in c_auto_id and c_name:
+                                sub_title = c_name
+                            elif c_name in KNOWN_APPLETS:
+                                sub_title = c_name
+                            elif not sub_title:
+                                for app in KNOWN_APPLETS:
+                                    if app in c_name and (c_class in ("QMdiSubWindow", "QDialog", "QWidget") or "Window" in getattr(c, "ControlTypeName", "")):
+                                        sub_title = app
+                                        break
+
+                            # Terminal / Command line buffer
+                            if c_class == "CCommandLine" or "CommandLine" in c_class or c_class in ("QTextEdit", "QPlainTextEdit"):
                                 val_pattern = c.GetPattern(auto.PatternId.ValuePattern)
                                 if val_pattern and val_pattern.Value:
-                                    lines = [ln.strip() for ln in val_pattern.Value.splitlines() if ln.strip()]
-                                    if lines:
-                                        last = lines[-1]
-                                        m = re.search(r"([\w\-]+(?:\([^\)]+\))?[>#])\s*$", last)
-                                        if m:
-                                            prompt = m.group(1)
-                        
-                        if sub_title and prompt:
-                            state.active_sub_app = f"{sub_title} ({prompt})"
+                                    terminal_text = val_pattern.Value
+                                elif not terminal_text:
+                                    text_pattern = c.GetPattern(auto.PatternId.TextPattern)
+                                    if text_pattern:
+                                        try:
+                                            terminal_text = text_pattern.DocumentRange.GetText(-1)
+                                        except Exception:
+                                            pass
+                                if not terminal_text and c_name:
+                                    terminal_text = c_name
+
+                        cli_mode = parse_cli_mode(terminal_text) if terminal_text else None
+
+                        if cli_mode:
+                            if sub_title:
+                                state.active_sub_app = f"{sub_title} {cli_mode}"
+                            elif selected_tab == "CLI" or not selected_tab:
+                                state.active_sub_app = f"CLI {cli_mode}"
+                            else:
+                                mapped_tab = TAB_MAPPINGS.get(selected_tab, selected_tab)
+                                state.active_sub_app = f"{mapped_tab} {cli_mode}"
                         elif sub_title:
                             state.active_sub_app = sub_title
-                        elif prompt:
-                            state.active_sub_app = f"CLI ({prompt})"
+                        elif selected_tab:
+                            state.active_sub_app = TAB_MAPPINGS.get(selected_tab, selected_tab)
             except Exception as e:
                 pass
+
+        if not state.active_device:
+            if not state.workspace_tool:
+                state.workspace_tool = f"Designing {state.view_mode} Topology ({state.sim_mode})"
 
         return state
 

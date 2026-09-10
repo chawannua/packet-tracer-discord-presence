@@ -108,7 +108,8 @@ def main():
                         activity_timer=state.activity_timer,
                         completion_percent=state.completion_percent,
                         sim_mode=state.sim_mode,
-                        view_mode=state.view_mode
+                        view_mode=state.view_mode,
+                        workspace_tool=state.workspace_tool
                     )
                 else:
                     if was_running:

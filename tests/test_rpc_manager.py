@@ -45,13 +45,13 @@ def test_rpc_update_success():
                    file_type="pkt", active_device="Router0", device_type="router", activity_timer="01:20:00")
 
         rpc.presence.update.assert_called_once_with(
-            details="Topology: NetworkLab.pkt (Timer: 01:20:00)",
-            state="Configuring: Router0",
+            details="Topology: NetworkLab.pkt (01:20:00)",
+            state="Configuring Router0",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer",
+            large_text="Cisco Packet Tracer | Realtime (Logical)",
             small_image="cisco",
-            small_text="Configuring Router0"
+            small_text="Router0 (Router)"
         )
         assert rpc._last_state["project_name"] == "NetworkLab.pkt"
         assert rpc._last_state["activity_timer"] == "01:20:00"
@@ -68,12 +68,12 @@ def test_rpc_update_unsaved_state():
 
         rpc.presence.update.assert_called_once_with(
             details="Designing New Topology",
-            state="Mode: Realtime (Logical)",
+            state="Designing Logical Topology (Realtime)",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer",
+            large_text="Cisco Packet Tracer | Realtime (Logical)",
             small_image="cisco",
-            small_text="Cisco Packet Tracer"
+            small_text="Cisco Systems"
         )
 
 def test_rpc_update_active_sub_app():
@@ -99,9 +99,9 @@ def test_rpc_update_active_sub_app():
             state="Laptop0 > Terminal (Switch#)",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer",
+            large_text="Cisco Packet Tracer | Progress: 75%",
             small_image="cisco",
-            small_text="Laptop0: Terminal (Switch#)"
+            small_text="Laptop0 (Laptop)"
         )
 
 def test_rpc_update_pka_completion_and_timer():
@@ -128,9 +128,62 @@ def test_rpc_update_pka_completion_and_timer():
             state="PC0 > Command Prompt",
             start=1000,
             large_image="packet_tracer",
-            large_text="Cisco Packet Tracer",
+            large_text="Cisco Packet Tracer | Progress: 75%",
             small_image="cisco",
-            small_text="PC0: Command Prompt"
+            small_text="PC0 (Pc)"
+        )
+
+def test_rpc_update_workspace_canvas_tools():
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(
+            project_name="Campus.pkt",
+            is_unsaved=False,
+            start_time=1000,
+            file_type="pkt",
+            active_device=None,
+            workspace_tool="Testing Connectivity (Simple PDU Ping)"
+        )
+
+        rpc.presence.update.assert_called_once_with(
+            details="Topology: Campus.pkt",
+            state="Testing Connectivity (Simple PDU Ping)",
+            start=1000,
+            large_image="packet_tracer",
+            large_text="Cisco Packet Tracer | Realtime (Logical)",
+            small_image="cisco",
+            small_text="Cisco Systems"
+        )
+
+def test_rpc_update_pka_no_completion_simulation():
+    with patch("packet_tracer_presence.rpc_manager.Presence"):
+        rpc = RPCManager()
+        rpc.presence = MagicMock()
+        rpc.connected = True
+        rpc._last_update_time = 0.0
+
+        rpc.update(
+            project_name="Activity.pka",
+            is_unsaved=False,
+            start_time=1000,
+            file_type="pka",
+            active_device=None,
+            sim_mode="Simulation",
+            view_mode="Physical"
+        )
+
+        rpc.presence.update.assert_called_once_with(
+            details="Lab: Activity.pka",
+            state="Designing Physical Topology (Simulation)",
+            start=1000,
+            large_image="packet_tracer",
+            large_text="Cisco Packet Tracer | Simulation Mode",
+            small_image="cisco",
+            small_text="Cisco Systems"
         )
 
 def test_rpc_update_rate_limiting():
@@ -166,7 +219,8 @@ def test_rpc_update_state_deduplication():
             "activity_timer": None,
             "completion_percent": None,
             "sim_mode": "Realtime",
-            "view_mode": "Logical"
+            "view_mode": "Logical",
+            "workspace_tool": None
         }
         rpc._last_state = state
 
