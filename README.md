@@ -9,6 +9,10 @@
 
 A lightweight, secure, and modern Discord Rich Presence integration for **Cisco Packet Tracer**. Automatically displays your active topology filename, edit duration, and saved/unsaved status on your Discord profile in real time.
 
+<p align="center">
+  <img src="assets/preview.png" alt="Cisco Packet Tracer Discord Rich Presence Preview" width="500">
+</p>
+
 ---
 
 ## Table of Contents
