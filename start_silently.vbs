@@ -7,7 +7,7 @@ mainPath = scriptDir & "\main.py"
 exePath = scriptDir & "\dist\PacketTracerPresence.exe"
 
 If FSO.FileExists(pythonwPath) Then
-    WshShell.Run "%comspec% /c """"" & pythonwPath & """ """ & mainPath & """""", 0, False
+    WshShell.Run """" & pythonwPath & """ """ & mainPath & """", 0, False
 ElseIf FSO.FileExists(exePath) Then
     WshShell.Run """" & exePath & """", 0, False
 End If
