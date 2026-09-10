@@ -263,35 +263,30 @@ class WindowParser:
             state.active_device = active_device
             state.device_type = self._determine_device_type(active_device)
 
-        # Deep Telemetry via uiautomation — only walk PT-owned windows to avoid native COM crash
-        if auto is not None:
+        # Deep Telemetry via uiautomation — find PT windows by PID directly (safe, no root scan)
+        if auto is not None and not getattr(WindowParser, '_uia_disabled', False):
+            pt_wins = []
             try:
                 auto.SetGlobalSearchTimeout(0.5)
                 root = auto.GetRootControl()
-                all_wins = root.GetChildren()
-            except Exception:
-                all_wins = []
+                for pt_pid in pt_pids:
+                    try:
+                        found = root.FindAllControl(
+                            lambda c, d: getattr(c, 'ProcessId', None) == pt_pid and
+                                         getattr(c, 'ControlTypeName', '') == 'WindowControl'
+                        )
+                        pt_wins.extend(found or [])
+                    except BaseException:
+                        WindowParser._uia_disabled = True
+                        break
+            except BaseException:
+                pt_wins = []
+                WindowParser._uia_disabled = True
 
-            for win in all_wins:
+            for win in pt_wins:
                 try:
                     name = win.Name or ""
                     cname = win.ClassName or ""
-
-                    # Only process windows that belong to PT pids
-                    try:
-                        win_pid = win.ProcessId
-                        if isinstance(win_pid, int):
-                            if win_pid not in pt_pids:
-                                continue
-                        else:
-                            # Not a real int (e.g. in tests) — fall back to classname check
-                            if cname not in ("CAppWindow", "CWorkstationDialog", "CRouterDialog",
-                                             "CSwitchDialog", "CDeviceDialog", "CBaseInstructionDialog",
-                                             "QWidget") and "Packet Tracer" not in name:
-                                continue
-                    except Exception:
-                        # Can't read ProcessId at all — skip unknown windows
-                        continue
 
                     # Instruction / Activity Dialog:
                     if "Instruction" in cname or "Activity" in name:

@@ -5,7 +5,8 @@ from packet_tracer_presence.window_parser import WindowParser
 class TestWindowParser(unittest.TestCase):
     def setUp(self):
         self.parser = WindowParser()
-        
+        WindowParser._uia_disabled = False  # Reset crash-guard flag between tests
+
     @patch("pygetwindow.getAllWindows", return_value=[])
     @patch("packet_tracer_presence.window_parser.WindowParser._get_pt_pids", return_value={1234})
     def test_window_parser_empty(self, mock_pids, mock_windows):
@@ -123,7 +124,7 @@ class TestWindowParser(unittest.TestCase):
         mock_toggle.ToggleState = 1
         mock_tool_ctrl.GetPattern.return_value = mock_toggle
 
-        mock_auto.GetRootControl().GetChildren.return_value = [mock_win_ctrl]
+        mock_auto.GetRootControl().FindAllControl.return_value = [mock_win_ctrl]
         mock_auto.WalkControl.return_value = [(mock_tool_ctrl, 0)]
 
         mock_pt_win = MagicMock()
@@ -165,7 +166,7 @@ class TestWindowParser(unittest.TestCase):
         mock_cmd_val.Value = "Router(config)# interface g0/0\nRouter(config-if)# "
         mock_cmd.GetPattern.return_value = mock_cmd_val
 
-        mock_auto.GetRootControl().GetChildren.return_value = [mock_dev_ctrl]
+        mock_auto.GetRootControl().FindAllControl.return_value = [mock_dev_ctrl]
         mock_auto.WalkControl.return_value = [(mock_tab, 0), (mock_cmd, 1)]
 
         with patch("pygetwindow.getAllWindows", return_value=[mock_win1, mock_win2]):
@@ -197,7 +198,7 @@ class TestWindowParser(unittest.TestCase):
         mock_tab.Name = "Config"
         mock_tab.GetPattern.return_value = None
 
-        mock_auto.GetRootControl().GetChildren.return_value = [mock_dev_ctrl]
+        mock_auto.GetRootControl().FindAllControl.return_value = [mock_dev_ctrl]
         mock_auto.WalkControl.return_value = [(mock_tab, 0)]
 
         with patch("pygetwindow.getAllWindows", return_value=[mock_win1, mock_win2]):
@@ -236,7 +237,7 @@ class TestWindowParser(unittest.TestCase):
         mock_cmd_val.Value = "C:\\Users\\PC> "
         mock_cmd.GetPattern.return_value = mock_cmd_val
 
-        mock_auto.GetRootControl().GetChildren.return_value = [mock_dev_ctrl]
+        mock_auto.GetRootControl().FindAllControl.return_value = [mock_dev_ctrl]
         mock_auto.WalkControl.return_value = [(mock_label, 0), (mock_cmd, 1)]
 
         with patch("pygetwindow.getAllWindows", return_value=[mock_win1, mock_win2]):
