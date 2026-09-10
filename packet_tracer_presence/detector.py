@@ -22,7 +22,7 @@ class ProcessDetector:
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
             
-            # Process died or inaccessible
+            # Process died or closed
             self._cached_pid = None
             self._cached_process = None
 

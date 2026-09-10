@@ -152,10 +152,10 @@ def test_rpc_update_pipe_closed_recovery():
 def test_rpc_clear_and_close():
     with patch("packet_tracer_presence.rpc_manager.Presence"):
         rpc = RPCManager()
-        rpc.presence = MagicMock()
+        mock_p = MagicMock()
+        rpc.presence = mock_p
         rpc.connected = True
         rpc.clear()
-        rpc.presence.clear.assert_called_once()
-        rpc.close()
-        rpc.presence.close.assert_called_once()
+        mock_p.clear.assert_called_once()
+        mock_p.close.assert_called_once()
         assert rpc.connected is False

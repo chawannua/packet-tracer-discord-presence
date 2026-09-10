@@ -100,3 +100,27 @@ def test_cli_main_loop_closed():
          
          assert mock_detector.find_packet_tracer.call_count == 2
          mock_rpc.clear.assert_called_once()
+
+def test_cli_main_loop_exit_on_close():
+    test_args = ["packet_tracer_presence", "--exit-on-close"]
+    
+    with patch('sys.argv', test_args), \
+         patch('packet_tracer_presence.cli.ProcessDetector') as mock_detector_class, \
+         patch('packet_tracer_presence.cli.WindowParser') as mock_parser_class, \
+         patch('packet_tracer_presence.cli.RPCManager') as mock_rpc_class, \
+         patch('time.sleep') as mock_sleep:
+         
+         mock_detector = mock_detector_class.return_value
+         mock_detector.find_packet_tracer.side_effect = [True, False]
+         
+         mock_parser = mock_parser_class.return_value
+         state = PacketTracerState(file_name="Workspace", is_unsaved=False)
+         mock_parser.get_active_activity.return_value = state
+         
+         mock_rpc = mock_rpc_class.return_value
+         
+         main()
+         
+         assert mock_detector.find_packet_tracer.call_count == 2
+         mock_rpc.clear.assert_called_once()
+         mock_rpc.close.assert_called_once()

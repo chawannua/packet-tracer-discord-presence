@@ -136,6 +136,15 @@ class RPCManager:
             self.presence.clear()
         except Exception as e:
             logger.debug(f"Failed to clear presence: {e}")
+        try:
+            self.presence.close()
+        except Exception as e:
+            logger.debug(f"Failed to close presence on clear: {e}")
+        self.connected = False
+        self._last_state = None
+        self._last_update_time = 0.0
+        self.presence = Presence(self.client_id)
+        logger.info("Presence cleared and disconnected from Discord")
             
     def close(self):
         if self.connected:
@@ -144,3 +153,5 @@ class RPCManager:
             except Exception as e:
                 logger.debug(f"Failed to close presence: {e}")
             self.connected = False
+            self._last_state = None
+            self._last_update_time = 0.0

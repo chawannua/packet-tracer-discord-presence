@@ -12,11 +12,26 @@ from .window_parser import WindowParser
 from .rpc_manager import RPCManager
 from . import __version__
 
+def ensure_single_instance():
+    if os.name == "nt" and "pytest" not in sys.modules and "unittest" not in sys.modules:
+        try:
+            import ctypes
+            mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "Global\\PacketTracerDiscordPresence_SingleInstanceMutex")
+            last_err = ctypes.windll.kernel32.GetLastError()
+            ERROR_ALREADY_EXISTS = 183
+            if last_err == ERROR_ALREADY_EXISTS:
+                return None
+            return mutex
+        except Exception:
+            return True
+    return True
+
 def main():
     parser = argparse.ArgumentParser(description="Discord Rich Presence for Cisco Packet Tracer")
     parser.add_argument("--interval", type=float, default=DEFAULT_POLLING_INTERVAL, help="Polling interval in seconds")
     parser.add_argument("--client-id", type=str, default=DISCORD_CLIENT_ID, help="Discord Client ID")
     parser.add_argument("--launch", action="store_true", help="Launch Discord Presence in background")
+    parser.add_argument("--exit-on-close", action="store_true", help="Exit when Packet Tracer closes")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     
@@ -44,6 +59,11 @@ def main():
     
     logger = logging.getLogger(__name__)
     
+    mutex = ensure_single_instance()
+    if not mutex:
+        logger.info("Another instance is already running. Exiting.")
+        return
+
     detector = ProcessDetector()
     window_parser = WindowParser()
     rpc = RPCManager(client_id=args.client_id)
@@ -96,6 +116,9 @@ def main():
                         rpc.clear()
                         start_time = None
                         was_running = False
+                        if args.exit_on_close:
+                            logger.info("Exiting because Packet Tracer closed (--exit-on-close)")
+                            break
             except Exception as loop_err:
                 logger.debug(f"Loop iteration error: {loop_err}")
                         
