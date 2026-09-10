@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "packet-tracer-discord-presence"
+version = "1.0.0"
+description = "Discord Rich Presence for Cisco Packet Tracer - Secure, lightweight, and multi-version support"
+authors = [
+    {name = "Chawannua", email = "chawannua@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pypresence>=4.3.0",
+    "psutil>=5.9.0",
+    "pygetwindow>=0.0.9"
+]
+
+[project.scripts]
+packet-tracer-discord-presence = "packet_tracer_presence.cli:main"

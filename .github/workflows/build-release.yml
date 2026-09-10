@@ -1,0 +1,74 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Standalone Executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build standalone executable with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onefile --name "PacketTracerPresence" --clean main.py
+
+      - name: Verify build artifact
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/PacketTracerPresence.exe")) {
+            Write-Error "dist/PacketTracerPresence.exe was not created!"
+            exit 1
+          }
+          $item = Get-Item "dist/PacketTracerPresence.exe"
+          Write-Host "Build successful: $($item.FullName) ($($item.Length) bytes)"
+
+      - name: Generate SHA-256 Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Path "dist/PacketTracerPresence.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash  PacketTracerPresence.exe" | Out-File -Encoding ascii -FilePath "dist/checksums.txt"
+          Write-Host "SHA-256 Checksum generated:"
+          Get-Content "dist/checksums.txt"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PacketTracerPresence-windows
+          path: |
+            dist/PacketTracerPresence.exe
+            dist/checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/PacketTracerPresence.exe
+            dist/checksums.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
